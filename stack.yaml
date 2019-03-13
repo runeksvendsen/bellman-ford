@@ -1,0 +1,16 @@
+resolver: lts-12.5
+
+packages:
+- .
+- location:
+    git: https://github.com/runeksvendsen/mono-traversable.git
+    commit: 1aea7d5b5dbd66be268e1c6c30bd40fe74abf844
+    subdirs:
+      - mutable-containers
+  extra-dep: true
+- location:
+    git: https://github.com/runeksvendsen/impure-containers.git
+    commit: 0f00dc9a617d5312b6fe5e9ddb9c2b4b9d0afdaf
+  extra-dep: true
+
+extra-deps: []

@@ -1,0 +1,43 @@
+name: bellman-ford
+version: '0.1.0.0'
+category: value
+author: Rune K. Svendsen
+maintainer: runesvend@gmail.com
+copyright: CC0
+license: BSD3
+homepage: https://github.com/runeksvendsen/bellman-ford#readme
+
+extra-source-files:
+- README.md
+
+dependencies:
+- base >=4.7 && <5
+- protolude
+- array
+- mutable-containers  # Deque
+- vector              # MVector
+- impure-containers
+- primitive
+- hashable
+
+library:
+  source-dirs: src
+  ghc-options:
+  - -Wall
+
+tests:
+  bellman-ford-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -Wall
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - bellman-ford
+    - hspec
+    - hspec-expectations
+    - hspec-smallcheck
+    - smallcheck
+    - transformers
