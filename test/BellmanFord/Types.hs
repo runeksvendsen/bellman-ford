@@ -1,8 +1,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module Spec.Types where
+module BellmanFord.Types where
 
-import           Spec.Orphans                         ()
+import           BellmanFord.Orphans                         ()
 import           Data.Graph.Digraph                   as Lib
 import           Data.Graph.Edge                      as Lib
 import qualified Test.SmallCheck.Series               as SS

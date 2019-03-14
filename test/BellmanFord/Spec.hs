@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Spec.Spec
+module BellmanFord.Spec
 ( spec )
 where
 
 import           Data.Graph.Prelude
-import           Spec.Types                         (TestEdge)
+import           BellmanFord.Types                         (TestEdge)
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 

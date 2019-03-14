@@ -1,14 +1,16 @@
 module Main where
 
-import qualified Spec.Spec                          as Spec
+import qualified BellmanFord.Spec                   as BellmanFord
+import qualified Queue.Spec                         as Queue
 import qualified Test.Hspec.Runner                  as Runner
 
 
 scDepth :: Int
-scDepth = 2
+scDepth = 5
 
 main :: IO ()
 main = do
-    Runner.hspecWith cfg Spec.spec
+    Runner.hspecWith cfg Queue.spec
+    Runner.hspecWith cfg BellmanFord.spec
   where
     cfg = Runner.defaultConfig { Runner.configSmallCheckDepth = scDepth }

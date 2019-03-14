@@ -3,7 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Spec.Orphans where
+module BellmanFord.Orphans where
 
 import           Data.Graph.Digraph                   as Lib
 import qualified Test.SmallCheck.Series               as SS
@@ -17,7 +17,7 @@ instance PrimMonad m => PrimMonad (SS.Series m) where
   primitive = lift . primitive
   {-# INLINE primitive #-}
 
-instance (PrimMonad m, PrimState m ~ primState, DirectedEdge e v, SS.Serial Identity e) 
+instance (PrimMonad m, PrimState m ~ primState, DirectedEdge e v, SS.Serial Identity e)
    => SS.Serial m (Lib.Digraph primState g e v) where
       series = do
          depth <- SS.getDepth
