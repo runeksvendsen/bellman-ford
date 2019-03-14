@@ -10,9 +10,7 @@ module Data.Stack
 , push
 , pop
   -- * Utility
-, mstream
-, mstreamR
-, S.Stream
+, toList
 )
 where
 
@@ -21,7 +19,6 @@ import qualified Data.Mutable                       as Mut
 import           Data.Vector.Generic.Mutable.Base   (MVector)
 import qualified Data.Vector                        as Vec
 import qualified Control.Monad.ST                   as ST
-import qualified Data.Vector.Fusion.Stream.Monadic  as S
 
 
 -- | Mutable stack
@@ -53,14 +50,8 @@ pop
     -> m (Maybe a)
 pop = Mut.popFront . getStack
 
--- | Convert into 'Stream' (starting from the front)
-mstream :: (PrimMonad m)
+-- | Convert into list
+toList :: (PrimMonad m)
         => MStack (PrimState m) a
-        -> m (S.Stream m a)
-mstream = Mut.mstream . getStack
-
--- | Convert into 'Stream' (starting from the back)
-mstreamR :: (PrimMonad m)
-        => MStack (PrimState m) a
-        -> m (S.Stream m a)
-mstreamR = Mut.mstreamR . getStack
+        -> m [a]
+toList = Mut.toList . getStack

@@ -15,7 +15,6 @@ import qualified Data.Array.ST                      as ST
 import qualified Data.Stack                         as S
 import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
-import qualified Data.Vector.Fusion.Stream.Monadic  as S
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
 
@@ -54,7 +53,7 @@ dfs graph state vertex = do
     Arr.writeArray (onStack state) vertex True
     Arr.writeArray (marked state) vertex True
     -- Iterate over outgoing edges
-    DG.outgoingEdges graph vertex >>= S.mapM_ handleEdge
+    DG.outgoingEdges graph vertex >>= mapM_ handleEdge
     Arr.writeArray (onStack state) vertex False
   where
     handleEdge edge =

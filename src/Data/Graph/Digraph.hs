@@ -25,7 +25,6 @@ import           Data.Graph.Types                   (Vertex)
 import           Data.Graph.Types.Internal          (MGraph(MGraph), mgraphCurrentId, Vertex(Vertex, getVertexInternal))
 import           Data.Hashable                      (Hashable)
 import qualified Data.HashMap.Mutable.Basic         as HM
-import qualified Data.Vector.Fusion.Stream.Monadic  as S
 import qualified Data.Primitive.MutVar              as MV
 
 
@@ -111,7 +110,7 @@ outgoingEdges
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> Vertex g                     -- ^ Vertex
-    -> m (Q.Stream m e)
+    -> m [e]
 outgoingEdges graph@(Digraph _ outEdgeMap) vertex = do
     edgeQueueM <- HM.lookup outEdgeMap vertex
-    maybe (return S.empty) Q.mstream edgeQueueM
+    maybe (return []) Q.toList edgeQueueM

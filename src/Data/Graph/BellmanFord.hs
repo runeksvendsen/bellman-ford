@@ -21,7 +21,6 @@ import           Data.Array.ST                      (STArray, STUArray)
 import qualified Data.Queue                         as Q
 import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
-import qualified Data.Vector.Fusion.Stream.Monadic  as S
 import qualified Data.Array.MArray                  as Arr
 
 
@@ -67,10 +66,10 @@ relax
     -> Vertex g
     -> ST s ()
 relax graph state vertex = do
-    stream <- DG.outgoingEdges graph vertex
+    edgeList <- DG.outgoingEdges graph vertex
     distToFrom <- Arr.readArray (distTo state) vertex
     vertexCount <- DG.vertexCount graph
-    S.mapM_ (handleEdge vertexCount distToFrom) stream
+    mapM_ (handleEdge vertexCount distToFrom) edgeList
   where
     handleEdge vertexCount distToFrom edge =
         unlessM (hasNegativeCycle state) $ do
@@ -178,7 +177,7 @@ check graph state source =
         -- check that all edges e = v->w satisfy distTo[w] <= distTo[v] + e.weight()
         forM_ vertices $ \v -> do
             adj <- DG.outgoingEdges graph v
-            (flip S.mapM_) adj $ \e -> do
+            (flip mapM_) adj $ \e -> do
                 w <- U.lookupVertex graph (E.toNode e)
                 distToV <- Arr.readArray (distTo state) v
                 distToW <- Arr.readArray (distTo state) w

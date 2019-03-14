@@ -5,7 +5,6 @@ where
 import           Data.Graph.Prelude
 import qualified Data.Queue                         as Lib
 
-import qualified Data.Vector.Fusion.Stream.Monadic  as S
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              as SC
 import           Test.Hspec                         (Spec, Expectation, shouldBe)
@@ -17,7 +16,7 @@ spec = parallel $ do
     describe "dequeue" $ do
         it "returns enqueued items" $
             SC.property enqueueListDeque
-    describe "mstream" $ do
+    describe "toList" $ do
         it "yields enqueued items" $
             SC.property enqueueListStream
 
@@ -44,5 +43,5 @@ enqueueListStream items =  do
     dequeuedList <- ST.stToIO $ do
             queue <- Lib.new
             forM_ items (Lib.enqueue queue)
-            S.toList =<< Lib.mstream queue
-    dequeuedList `shouldBe` items
+            Lib.toList queue
+    dequeuedList `shouldBe` reverse items
