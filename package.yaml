@@ -54,3 +54,11 @@ tests:
     - smallcheck
     - transformers
     - vector    # MQueue
+
+executables:
+  bellman-ford-exe:
+    main: Main.hs
+    source-dirs: app
+    dependencies:
+    - bellman-ford
+    - impure-containers
