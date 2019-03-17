@@ -109,13 +109,13 @@ initState
     -> ST s (State s g e)   -- ^ Initialized state
 initState graph src = do
     vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
-    state <- State
-        <$> Arr.newArray (Vertex 0, vertexCount) (1/0)      -- distTo
-        <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (Vertex 0, vertexCount) False      -- onQueue
-        <*> Q.new                                           -- queue
-        <*> MV.newMutVar 0                                  -- cost
-        <*> MV.newMutVar []                                 -- cycle
+    distTo' <- Arr.newArray (Vertex 0, vertexCount) (1/0)      -- distTo
+    edgeTo' <- Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
+    onQueue' <- Arr.newArray (Vertex 0, vertexCount) False      -- onQueue
+    queue' <- Q.new                                           -- queue
+    cost' <- MV.newMutVar 0                                  -- cost
+    cycle' <- MV.newMutVar []                                 -- cycle
+    let state = State distTo' edgeTo' onQueue' queue' cost' cycle'
     Arr.writeArray (distTo state) src 0.0
     enqueueVertex state src
     return state

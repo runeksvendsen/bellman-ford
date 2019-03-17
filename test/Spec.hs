@@ -6,7 +6,7 @@ import qualified Test.Hspec.Runner                  as Runner
 
 
 scDepth :: Int
-scDepth = 5
+scDepth = 3
 
 main :: IO ()
 main = do

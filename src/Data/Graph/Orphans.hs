@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.Graph.Orphans
 (
 )
@@ -15,4 +16,5 @@ instance Ix (Vertex g) where
     inRange (start, end) sub =
         inRange (vtxInt start, vtxInt end) (vtxInt sub)
 
+vtxInt :: Vertex g -> Int
 vtxInt = getVertexInternal
