@@ -54,3 +54,5 @@ tests:
     - smallcheck
     - transformers
     - vector    # MQueue
+    - tasty-smallcheck
+    - tasty

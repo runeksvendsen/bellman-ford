@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module BellmanFord.Spec
-( spec )
+( spec
+, tastyProps
+)
 where
 
 import           Data.Graph.Prelude
@@ -13,6 +15,14 @@ import qualified Test.SmallCheck.Series             as SS
 import qualified Test.Hspec.SmallCheck              as SC
 import           Test.Hspec                         (Spec, Expectation)
 import           Test.Hspec                         (describe, it, parallel)
+-- TASTY
+import Test.Tasty
+import Test.Tasty.SmallCheck  as SC
+
+
+tastyProps = testGroup "bellmanFord"
+  [ SC.testProperty "passes 'check'" $ bellmanFord
+  ]
 
 
 spec :: Spec
