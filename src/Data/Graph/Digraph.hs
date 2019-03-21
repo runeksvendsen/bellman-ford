@@ -7,6 +7,7 @@ module Data.Graph.Digraph
 , insertVertex
 , lookupVertex
 , insertEdge
+, mapEdges
   -- * Queries
 , vertexCount
 , vertices
@@ -114,3 +115,18 @@ outgoingEdges
 outgoingEdges graph@(Digraph _ outEdgeMap) vertex = do
     edgeQueueM <- HM.lookup outEdgeMap vertex
     maybe (return []) Q.toList edgeQueueM
+
+-- | Copy a graph, modifying its edges as specified.
+-- NB: will only contain the vertices specified by the new edges.
+mapEdges
+    :: (PrimMonad m, DirectedEdge e' v)
+    => (e -> m e')
+    -> Digraph (PrimState m) g e v
+    -> m (Digraph (PrimState m) g e' v)
+mapEdges f graph = do
+    vertexList <- vertices graph
+    newGraph <- new
+    forM_ vertexList $ \vertex -> do
+        outEdges <- outgoingEdges graph vertex
+        forM_ outEdges (f >=> insertEdge newGraph)
+    return newGraph
