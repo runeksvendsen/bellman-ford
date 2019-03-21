@@ -129,17 +129,14 @@ check state = do
         if E.fromNode singleEdge /= E.toNode singleEdge
             then Just $ "bad single-edge cycle: " ++ show singleEdge
             else Nothing
-    verifyCycle (first : rest) =
+    verifyCycle edges =
         let compareEdges (prev, Nothing) next =
                 if E.toNode prev /= E.fromNode next
                     then Just $ mkError prev next
                     else Nothing
             compareEdges (_, err) _ = err
-            checkFirstLast first' (last', err) =
-                if E.toNode last' /= E.fromNode first'
-                    then Just $ mkError last' first'
-                    else err
-        in checkFirstLast first $
+        in snd $
                 foldl'  (\accum next -> (next, compareEdges accum next))
-                        (first, Nothing)
-                        rest
+                        (last edges, Nothing)
+                        edges
+                        --  Starting with the last edge checks that "toNode last == fromNode first"
