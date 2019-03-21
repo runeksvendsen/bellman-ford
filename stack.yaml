@@ -4,7 +4,7 @@ packages:
 - .
 - location:
     git: https://github.com/runeksvendsen/mono-traversable.git
-    commit: 5faf07d2dc2b3b67d2c138bdeb4d66b9105a1661
+    commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
     subdirs:
       - mutable-containers
   extra-dep: true
