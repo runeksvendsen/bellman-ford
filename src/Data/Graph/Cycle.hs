@@ -12,11 +12,11 @@ import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Control.Monad.ST                   (ST)
 import qualified Data.Array.ST                      as ST
-import qualified Data.Stack                         as S
 import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
+import           Data.List                          (foldl')
 
 
 -- |
@@ -33,7 +33,7 @@ data State s g e = State
 
 -- | Return cycle (empty list if no cycle exists)
 findCycle
-    :: (E.DirectedEdge e v)
+    :: (E.DirectedEdge e v, Show e)
     => DG.Digraph s g e v
     -> ST s [e]
 findCycle graph = do
@@ -41,8 +41,8 @@ findCycle graph = do
     vertices <- DG.vertices graph
     forM_ vertices $ \vertex ->
         unlessM (Arr.readArray (marked state) vertex) $ dfs graph state vertex
+    (`assert` ()) <$> check state
     MV.readMutVar (cycle state)
-    -- TODO: assert check()
 
 dfs :: (E.DirectedEdge e v)
     => DG.Digraph s g e v   -- ^ Graph
@@ -111,12 +111,35 @@ initState graph = do
         <$> Arr.newArray (Vertex 0, vertexCount) False      -- marked
         <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
         <*> Arr.newArray (Vertex 0, vertexCount) False      -- onStack
-        <*> MV.newMutVar []                             -- cycle
+        <*> MV.newMutVar []                                 -- cycle
     return state
 
 -- certify that digraph is either acyclic or has a directed cycle
+check :: (E.DirectedEdge e a, Show e) => State s g e -> ST s Bool
 check state = do
-    whenM (hasCycle state) $ do
-        return ()
-        -- verify cycle:
+    whenM (hasCycle state) $
+        MV.readMutVar (cycle state) >>= maybe (return ()) error . verifyCycle
     return True
+  where
+    mkError prev next = printf "cycle edges %s and %s not incident" (show prev) (show next)
+    verifyCycle :: (E.DirectedEdge e a, Eq a, Show e) => [e] -> Maybe String
+    verifyCycle           [] =
+        Just "empty list of cycle edges"
+    verifyCycle [singleEdge] =
+        if E.fromNode singleEdge /= E.toNode singleEdge
+            then Just $ "bad single-edge cycle: " ++ show singleEdge
+            else Nothing
+    verifyCycle (first : rest) =
+        let compareEdges (prev, Nothing) next =
+                if E.toNode prev /= E.fromNode next
+                    then Just $ mkError prev next
+                    else Nothing
+            compareEdges (_, err) _ = err
+            checkFirstLast first' (last', err) =
+                if E.toNode last' /= E.fromNode first'
+                    then Just $ mkError last' first'
+                    else err
+        in checkFirstLast first $
+                foldl'  (\accum next -> (next, compareEdges accum next))
+                        (first, Nothing)
+                        rest

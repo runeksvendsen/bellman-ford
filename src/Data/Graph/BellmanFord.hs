@@ -41,13 +41,14 @@ data State s g e = State
     }
 
 bellmanFord
-    :: (E.WeightedEdge e v Double)
+    :: (E.WeightedEdge e v Double, Eq e, Show e)
     => DG.Digraph s g e v
     -> Vertex g
     -> ST s (State s g e)
 bellmanFord graph src = do
     state <- initState graph src
     go state
+    (`assert` ()) <$> check graph state src
     return state
   where
     go state = do
@@ -60,7 +61,7 @@ bellmanFord graph src = do
                 unlessM (hasNegativeCycle state) (go state)
 
 relax
-    :: (E.WeightedEdge e v Double)
+    :: (E.WeightedEdge e v Double, Show e)
     => DG.Digraph s g e v
     -> State s g e
     -> Vertex g
@@ -89,7 +90,7 @@ relax graph state vertex = do
                 findNegativeCycle state
 
 findNegativeCycle
-    :: (E.DirectedEdge e v)
+    :: (E.DirectedEdge e v, Show e)
     => State s g e
     -> ST s ()
 findNegativeCycle state = do
@@ -150,9 +151,10 @@ check
     => DG.Digraph s g e v
     -> State s g e
     -> Vertex g
-    -> ST s ()
-check graph state source =
+    -> ST s Bool
+check graph state source = do
     ifM (hasNegativeCycle state) checkNegativeCycle checkNoCycle
+    return True
   where
     checkNegativeCycle = do
         negativeCycle <- MV.readMutVar (cycle state)
