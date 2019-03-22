@@ -6,7 +6,7 @@ module BellmanFord.Spec
 where
 
 import           Data.Graph.Prelude
-import           BellmanFord.Types                         (TestEdge)
+import           BellmanFord.Types                  (TestEdge)
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
@@ -37,5 +37,4 @@ bellmanFord
 bellmanFord graph = do
     vertices <- Lib.vertices graph
     ST.stToIO $ forM_ vertices $ \source -> do
-        state <- Lib.bellmanFord graph source
-        Lib.check graph state source
+        Lib.bellmanFord graph source (\weight edge -> weight + Lib.weight edge)

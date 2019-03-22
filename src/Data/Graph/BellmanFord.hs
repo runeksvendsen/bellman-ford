@@ -4,7 +4,8 @@ module Data.Graph.BellmanFord
   bellmanFord
   -- * Types
 , State
-, E.DirectedEdge
+, E.DirectedEdge(..)
+, E.WeightedEdge(..)
   -- * Test
 , check
 )
@@ -44,11 +45,12 @@ bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
     => DG.Digraph s g e v
     -> Vertex g
+    -> (Double -> e -> Double)
     -> ST s (State s g e)
-bellmanFord graph src = do
+bellmanFord graph src calcWeight = do
     state <- initState graph src
     go state
-    (`assert` ()) <$> check graph state src
+    (`assert` ()) <$> check graph state src calcWeight
     return state
   where
     go state = do
@@ -56,17 +58,27 @@ bellmanFord graph src = do
         case vertexM of
             Nothing     -> return ()
             Just vertex -> do
-                relax graph state vertex
+                relax graph state vertex calcWeight
                 -- Recurse unless there's a negative cycle
                 unlessM (hasNegativeCycle state) (go state)
 
+-- |
 relax
     :: (E.WeightedEdge e v Double, Show e)
     => DG.Digraph s g e v
     -> State s g e
     -> Vertex g
+    -> (Double -> e -> Double)
+    -- | Weight calculation function "f".
+    --   "f a b" calculates a new distance to a "to" vertex.
+    ---  "a" is the distance to the edge's "from vertex",
+    --    and "b" is the edge going from "from" to "to". If the value returned by this
+    --    function is less than the current distance to "to", the distance to "to" will
+    --    be updated.
+    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
+    --   this function would simply be "(+)".
     -> ST s ()
-relax graph state vertex = do
+relax graph state vertex calcWeight = do
     edgeList <- DG.outgoingEdges graph vertex
     distToFrom <- Arr.readArray (distTo state) vertex
     vertexCount <- DG.vertexCount graph
@@ -78,8 +90,9 @@ relax graph state vertex = do
             -- Look up current distance to "to" vertex
             distToTo <- Arr.readArray (distTo state) to
             -- Actual relaxation
-            when (distToTo > distToFrom + E.weight edge) $ do
-                Arr.writeArray (distTo state) to (distToFrom + E.weight edge)
+            let newToWeight = calcWeight distToFrom edge
+            when (distToTo > newToWeight) $ do
+                Arr.writeArray (distTo state) to newToWeight
                 Arr.writeArray (edgeTo state) to (Just edge)
                 whenM (Arr.readArray (onQueue state) to) $
                     enqueueVertex state to
@@ -151,8 +164,9 @@ check
     => DG.Digraph s g e v
     -> State s g e
     -> Vertex g
+    -> (Double -> e -> Double)
     -> ST s Bool
-check graph state source = do
+check graph state source calcWeight = do
     ifM (hasNegativeCycle state) checkNegativeCycle checkNoCycle
     return True
   where
@@ -183,7 +197,7 @@ check graph state source = do
                 w <- U.lookupVertex graph (E.toNode e)
                 distToV <- Arr.readArray (distTo state) v
                 distToW <- Arr.readArray (distTo state) w
-                when (distToV + E.weight e < distToW) $
+                when (calcWeight distToV e < distToW) $
                     error $ "edge " ++ show e ++ " not relaxed"
         -- check that all edges e = v->w on SPT satisfy distTo[w] == distTo[v] + e.weight()
         forM_ vertices $ \w -> do
@@ -197,5 +211,5 @@ check graph state source = do
                     v <- U.lookupVertex graph (E.fromNode e)
                     distToV <- Arr.readArray (distTo state) v
                     distToW <- Arr.readArray (distTo state) w
-                    when (distToV + E.weight e /= distToW) $
+                    when (calcWeight distToV e /= distToW) $
                         error $ "edge " ++ show e ++ " on shortest path not tight"
