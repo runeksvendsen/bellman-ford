@@ -11,7 +11,6 @@ import           Data.Hashable                  (Hashable)
 
 -- | An edge in a graph
 class ( Eq nodeLabel
-      -- , Ord edge
       , Hashable nodeLabel
       ) => DirectedEdge edge nodeLabel | edge -> nodeLabel where
     fromNode :: edge -> nodeLabel   -- ^ Label associated with the edge's "from" node
