@@ -9,7 +9,7 @@ import           Test.Tasty.SmallCheck             as SC
 
 
 scDepth :: Int
-scDepth = 5
+scDepth = 4
 
 main :: IO ()
 main = do
