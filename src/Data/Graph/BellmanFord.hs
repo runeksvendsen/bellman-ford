@@ -94,7 +94,7 @@ relax graph state vertex calcWeight = do
             when (distToTo > newToWeight) $ do
                 Arr.writeArray (distTo state) to newToWeight
                 Arr.writeArray (edgeTo state) to (Just edge)
-                whenM (Arr.readArray (onQueue state) to) $
+                unlessM (Arr.readArray (onQueue state) to) $
                     enqueueVertex state to
             -- Update cost (number of calls to "relax")
             newCost <- MV.atomicModifyMutVar' (cost state)
