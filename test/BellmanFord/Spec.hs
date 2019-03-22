@@ -11,7 +11,6 @@ import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
 import qualified Control.Monad.ST                   as ST
-import qualified Test.SmallCheck.Series             as SS
 import qualified Test.Hspec.SmallCheck              as SC
 import           Test.Hspec                         (Spec, Expectation)
 import           Test.Hspec                         (describe, it, parallel)
@@ -32,9 +31,10 @@ spec = parallel $ do
             SC.property bellmanFord
 
 bellmanFord
-    :: Lib.Digraph ST.RealWorld g TestEdge String
+    :: [TestEdge]
     -> Expectation
-bellmanFord graph = do
+bellmanFord edges = do
+    graph <- Lib.fromEdges edges
     vertices <- Lib.vertices graph
     ST.stToIO $ forM_ vertices $ \source -> do
         Lib.bellmanFord graph source (\weight edge -> weight + Lib.weight edge)

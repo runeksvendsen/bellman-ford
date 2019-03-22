@@ -2,7 +2,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 module BellmanFord.Types where
 
-import           BellmanFord.Orphans                         ()
 import           Data.Graph.Digraph                   as Lib
 import           Data.Graph.Edge                      as Lib
 import qualified Test.SmallCheck.Series               as SS
