@@ -3,6 +3,7 @@
 module BellmanFord.Types
 ( TestEdge
 , PositiveWeight(..)
+, NegLog(..)
 )
 where
 
@@ -34,3 +35,16 @@ instance Monad m => SS.Serial m (PositiveWeight TestEdge) where
       SS.Positive weight' <- SS.series
       edge <- SS.series
       return $ PositiveWeight $ TestEdge edge weight'
+
+-- | The negative log of something
+newtype NegLog a = NegLog { getLog :: a }
+   deriving (Eq, Show, Ord)
+
+-- | Same instance as for 'TestEdge'
+instance Lib.DirectedEdge (NegLog TestEdge) String where
+   fromNode = fst . getEdge . getLog
+   toNode = snd . getEdge . getLog
+
+-- | Return negative log of weight
+instance Lib.WeightedEdge (NegLog TestEdge) String Double where
+   weight = negate . log . getWeight . getLog
