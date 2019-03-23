@@ -47,13 +47,9 @@ tests:
     - -with-rtsopts=-N
     - -fno-ignore-asserts
     dependencies:
-    - primitive
     - bellman-ford
-    - hspec
     - hspec-expectations
     - hspec-smallcheck
     - smallcheck
-    - transformers
-    - vector    # MQueue
     - tasty-smallcheck
     - tasty

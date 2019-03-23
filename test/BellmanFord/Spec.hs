@@ -13,7 +13,7 @@ import qualified Data.Graph.BellmanFord             as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec                         (Expectation)
+import           Test.Hspec.Expectations            (Expectation)
 import qualified Test.Tasty                         as Tasty
 import           Test.Tasty.SmallCheck              as SC
 
