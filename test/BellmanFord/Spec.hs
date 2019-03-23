@@ -41,6 +41,6 @@ bellmanFord
     -> Expectation
 bellmanFord combine edges = do
     graph <- Lib.fromEdges edges
-    vertices <- Lib.vertices graph
+    vertices <- Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source -> do
         Lib.bellmanFord graph source (\weight edge -> weight `combine` Lib.weight edge)

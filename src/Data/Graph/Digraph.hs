@@ -11,6 +11,7 @@ module Data.Graph.Digraph
   -- * Queries
 , vertexCount
 , vertices
+, vertexLabels
 , outgoingEdges
   -- * Re-exports
 , DirectedEdge(..)
@@ -23,7 +24,9 @@ import           Data.Graph.Orphans                 ()
 import qualified Data.Queue                         as Q
 import qualified Data.Graph.Mutable                 as Mut
 import           Data.Graph.Types                   (Vertex)
-import           Data.Graph.Types.Internal          (MGraph(MGraph), mgraphCurrentId, Vertex(Vertex, getVertexInternal))
+import           Data.Graph.Types.Internal          ( MGraph(MGraph, mgraphVertexIndex)
+                                                    , mgraphCurrentId, Vertex(Vertex)
+                                                    )
 import           Data.Hashable                      (Hashable)
 import qualified Data.HashMap.Mutable.Basic         as HM
 import qualified Data.Primitive.MutVar              as MV
@@ -105,6 +108,14 @@ vertices
 vertices (Digraph graph _) = do
     currId <- MV.readMutVar (mgraphCurrentId graph)
     return $ fmap Vertex [0..currId-1]
+
+-- | All the vertex labels in the graph
+vertexLabels
+    :: (PrimMonad m)
+    => Digraph (PrimState m) g e v  -- ^ Graph
+    -> m [v]                 -- ^ List of vertices in the graph
+vertexLabels (Digraph graph _) =
+    HM.foldM (\accum v _ -> return $ v : accum) [] (mgraphVertexIndex graph)
 
 -- | All edges going out of the given vertex
 outgoingEdges
