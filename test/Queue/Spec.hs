@@ -6,19 +6,21 @@ import           Data.Graph.Prelude
 import qualified Data.Queue                         as Lib
 
 import qualified Control.Monad.ST                   as ST
-import qualified Test.Hspec.SmallCheck              as SC
-import           Test.Hspec                         (Spec, Expectation, shouldBe)
-import           Test.Hspec                         (describe, it, parallel)
+import qualified Test.Hspec.SmallCheck              ()
+import           Test.Hspec                         (Expectation, shouldBe)
+import qualified Test.Tasty                         as Tasty
+import           Test.Tasty.SmallCheck              as SC
 
 
-spec :: Spec
-spec = parallel $ do
-    describe "dequeue" $ do
-        it "returns enqueued items" $
-            SC.property enqueueListDeque
-    describe "toList" $ do
-        it "yields enqueued items" $
-            SC.property enqueueListStream
+spec :: Tasty.TestTree
+spec = Tasty.testGroup "Queue" $
+    [ Tasty.testGroup "dequeue"
+        [ SC.testProperty "returns enqueued items" enqueueListDeque
+        ]
+    , Tasty.testGroup "toList"
+        [ SC.testProperty "yields enqueued items" enqueueListStream
+        ]
+    ]
 
 enqueueListDeque
     :: [Int]

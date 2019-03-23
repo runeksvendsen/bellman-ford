@@ -2,7 +2,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module BellmanFord.Spec
 ( spec
-, tastyProps
 )
 where
 
@@ -12,32 +11,21 @@ import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
 import qualified Control.Monad.ST                   as ST
-import qualified Test.Hspec.SmallCheck              as SC
-import           Test.Hspec                         (Spec, Expectation)
-import           Test.Hspec                         (describe, it, parallel)
--- TASTY
-import Test.Tasty
-import Test.Tasty.SmallCheck  as SC
+import qualified Test.Hspec.SmallCheck              ()
+import           Test.Hspec                         (Expectation)
+import qualified Test.Tasty                         as Tasty
+import           Test.Tasty.SmallCheck              as SC
 
 
-tastyProps :: [TestTree]
-tastyProps =
-    [ testGroup "additive (all weights)"
+spec :: Tasty.TestTree
+spec = Tasty.testGroup "BellmanFord" $
+    [ Tasty.testGroup "additive (all weights)"
         [ SC.testProperty "passes 'check'" $ bellmanFord (+)
         ]
-    , testGroup "multiplicative (positive weights)"
+    , Tasty.testGroup "multiplicative (positive weights)"
         [ SC.testProperty "passes 'check'" $ bellmanFord (*) . map positiveWeight
         ]
     ]
-
-spec :: Spec
-spec = parallel $ do
-    describe "bellmanFord additive (all weights)" $ do
-        it "passes 'check'" $
-            SC.property $ bellmanFord (+)
-    describe "bellmanFord multiplicative (positive weights)" $ do
-        it "passes 'check'" $
-            SC.property $ bellmanFord (*) . map positiveWeight
 
 bellmanFord
     :: (Double -> Double -> Double)
