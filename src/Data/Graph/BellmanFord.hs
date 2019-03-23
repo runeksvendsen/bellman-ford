@@ -4,6 +4,7 @@ module Data.Graph.BellmanFord
   bellmanFord
   -- * Queries
 , pathTo
+, negativeCycle
   -- * Types
 , State
 , E.DirectedEdge(..)
@@ -25,6 +26,7 @@ import qualified Data.Queue                         as Q
 import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
+import qualified Data.List.NonEmpty                 as NE
 
 
 -- |
@@ -150,6 +152,16 @@ hasNegativeCycle
     :: State s g e
     -> ST s Bool
 hasNegativeCycle = fmap (not . null) . MV.readMutVar . cycle
+
+-- | Get negative cycle ('Nothing' in case there's no negative cycle)
+negativeCycle
+    :: State s g e
+    -> ST s (Maybe (NE.NonEmpty e))
+negativeCycle state = do
+    edgeList <- MV.readMutVar $ cycle state
+    case edgeList of
+        []    -> return Nothing
+        edges -> return $ Just $ NE.fromList edges
 
 -- | Create initial 'State'
 initState
