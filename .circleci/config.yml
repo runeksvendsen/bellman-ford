@@ -18,7 +18,7 @@ jobs:
           command: stack test --trace
       - run:
           name: Install executable
-          command: stack install
+          command: stack install --trace
       - save_cache:
           name: Cache Dependencies
           key: cci-demo-haskell-v1-{{ checksum "package.yaml" }}-{{ checksum "stack.yaml" }}
