@@ -45,14 +45,15 @@ data State s g e = State
 
 bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
-    => DG.Digraph s g e v
-    -> Vertex g
-    -> (Double -> e -> Double)
+    => DG.Digraph s g e v       -- ^ Graph
+    -> v                        -- ^ Source vertex
+    -> (Double -> e -> Double)  
     -> ST s (State s g e)
 bellmanFord graph src calcWeight = do
-    state <- initState graph src
+    srcVertex <- U.lookupVertex graph src
+    state <- initState graph srcVertex
     go state
-    (`assert` ()) <$> check graph state src calcWeight
+    (`assert` ()) <$> check graph state srcVertex calcWeight
     return state
   where
     go state = do
