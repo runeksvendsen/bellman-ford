@@ -2,6 +2,8 @@
 module Data.Graph.BellmanFord
 ( -- * Algorithm
   bellmanFord
+  -- * Queries
+, pathTo
   -- * Types
 , State
 , E.DirectedEdge(..)
@@ -61,6 +63,37 @@ bellmanFord graph src calcWeight = do
                 relax graph state vertex calcWeight
                 -- Recurse unless there's a negative cycle
                 unlessM (hasNegativeCycle state) (go state)
+
+-- |
+pathTo
+    :: (E.DirectedEdge e v)
+    => DG.Digraph s g e v
+    -> State s g e
+    -> v                        -- ^ Target vertex
+    -> ST s (Maybe [e])
+pathTo graph state target = do
+    whenM (hasNegativeCycle state) $
+        error "Negative cost cycle exists"
+    targetVertex <- U.lookupVertex graph target
+    pathExists <- hasPathTo state targetVertex
+    if pathExists
+        then Just <$> go [] targetVertex
+        else return Nothing
+  where
+    go accum toVertex = do
+        edgeM <- Arr.readArray (edgeTo state) toVertex
+        case edgeM of
+            Nothing   -> return accum
+            Just edge -> do
+                fromNode <- U.lookupVertex graph (E.fromNode edge)
+                go (edge : accum) fromNode
+
+hasPathTo
+    :: State s g e
+    -> Vertex g
+    -> ST s Bool
+hasPathTo state target =
+    (< (1/0)) <$> Arr.readArray (distTo state) target
 
 -- |
 relax
