@@ -21,4 +21,4 @@ main = do
 
 properties :: Tasty.TestTree
 properties = Tasty.localOption (SC.SmallCheckDepth scDepth) $
-   Tasty.testGroup "Properties" [BellmanFord.tastyProps]
+   Tasty.testGroup "BellmanFord" BellmanFord.tastyProps

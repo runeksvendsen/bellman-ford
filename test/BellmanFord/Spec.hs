@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module BellmanFord.Spec
 ( spec
 , tastyProps
@@ -6,7 +7,7 @@ module BellmanFord.Spec
 where
 
 import           Data.Graph.Prelude
-import           BellmanFord.Types                  (TestEdge)
+import           BellmanFord.Types                  (TestEdge, PositiveWeight(..))
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
@@ -19,22 +20,31 @@ import Test.Tasty
 import Test.Tasty.SmallCheck  as SC
 
 
-tastyProps = testGroup "bellmanFord"
-  [ SC.testProperty "passes 'check'" $ bellmanFord
-  ]
-
+tastyProps :: [TestTree]
+tastyProps =
+    [ testGroup "additive (all weights)"
+        [ SC.testProperty "passes 'check'" $ bellmanFord (+)
+        ]
+    , testGroup "multiplicative (positive weights)"
+        [ SC.testProperty "passes 'check'" $ bellmanFord (*) . map positiveWeight
+        ]
+    ]
 
 spec :: Spec
 spec = parallel $ do
-    describe "bellmanFord" $ do
+    describe "bellmanFord additive (all weights)" $ do
         it "passes 'check'" $
-            SC.property bellmanFord
+            SC.property $ bellmanFord (+)
+    describe "bellmanFord multiplicative (positive weights)" $ do
+        it "passes 'check'" $
+            SC.property $ bellmanFord (*) . map positiveWeight
 
 bellmanFord
-    :: [TestEdge]
+    :: (Double -> Double -> Double)
+    -> [TestEdge]
     -> Expectation
-bellmanFord edges = do
+bellmanFord combine edges = do
     graph <- Lib.fromEdges edges
     vertices <- Lib.vertices graph
     ST.stToIO $ forM_ vertices $ \source -> do
-        Lib.bellmanFord graph source (\weight edge -> weight + Lib.weight edge)
+        Lib.bellmanFord graph source (\weight edge -> weight `combine` Lib.weight edge)
