@@ -43,11 +43,20 @@ data State s g e = State
     , cycle     :: MV.MutVar s [e]
     }
 
+-- |
 bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
     => DG.Digraph s g e v       -- ^ Graph
     -> v                        -- ^ Source vertex
-    -> (Double -> e -> Double)  
+    -> (Double -> e -> Double)
+    -- | Weight calculation function "f".
+    --   "f a b" calculates a new distance to a "to" vertex.
+    ---  "a" is the distance to the edge's "from vertex",
+    --    and "b" is the edge going from "from" to "to". If the value returned by this
+    --    function is less than the current distance to "to", the distance to "to" will
+    --    be updated.
+    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
+    --   this function would simply be "(+)".
     -> ST s (State s g e)
 bellmanFord graph src calcWeight = do
     srcVertex <- U.lookupVertex graph src
@@ -103,14 +112,6 @@ relax
     -> State s g e
     -> Vertex g
     -> (Double -> e -> Double)
-    -- | Weight calculation function "f".
-    --   "f a b" calculates a new distance to a "to" vertex.
-    ---  "a" is the distance to the edge's "from vertex",
-    --    and "b" is the edge going from "from" to "to". If the value returned by this
-    --    function is less than the current distance to "to", the distance to "to" will
-    --    be updated.
-    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
-    --   this function would simply be "(+)".
     -> ST s ()
 relax graph state vertex calcWeight = do
     edgeList <- DG.outgoingEdges graph vertex
