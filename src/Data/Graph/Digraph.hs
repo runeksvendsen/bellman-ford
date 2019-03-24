@@ -7,6 +7,7 @@ module Data.Graph.Digraph
 , insertVertex
 , lookupVertex
 , insertEdge
+, removeEdge
 , mapEdges
   -- * Queries
 , vertexCount
@@ -99,6 +100,22 @@ insertEdge graph@(Digraph _ outEdgeMap) edge = do
         Just edgeMap -> return edgeMap
     let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
     HM.insert edgeMap intPair edge
+
+-- | Remove edge
+removeEdge
+    :: (PrimMonad m, DirectedEdge e v)
+    => Digraph (PrimState m) g e v  -- ^ Graph
+    -> e                            -- ^ Edge to remove
+    -> m ()
+removeEdge graph@(Digraph _ outEdgeMap) edge = do
+    fromVertex <- insertVertex graph (fromNode edge)
+    toVertex   <- insertVertex graph (toNode edge)
+    edgeMapM   <- HM.lookup outEdgeMap fromVertex
+    case edgeMapM of
+        Nothing      -> return ()    -- no outgoing edges at all from "from"
+        Just edgeMap -> do
+            let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
+            HM.delete edgeMap intPair
 
 -- | Count of the number of vertices in the graph
 vertexCount
