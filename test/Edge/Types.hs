@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module BellmanFord.Types
-( TestEdge
+module Edge.Types
+( TestEdge(..)
 , PositiveWeight(..)
 , NegLog(..)
 )
@@ -15,7 +15,7 @@ import qualified Test.SmallCheck.Series               as SS
 data TestEdge = TestEdge
     { getEdge     :: (String, String)
     , getWeight   :: Double
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Ord)
 
 instance Lib.DirectedEdge TestEdge String where
    fromNode = fst . getEdge

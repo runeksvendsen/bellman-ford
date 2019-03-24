@@ -7,7 +7,7 @@ module BellmanFord.Spec
 where
 
 import           Data.Graph.Prelude
-import           BellmanFord.Types
+import           Edge.Types
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
