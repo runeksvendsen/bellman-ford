@@ -21,23 +21,27 @@ where
 import           Data.Graph.Prelude
 import           Data.Graph.Edge                    (DirectedEdge(..))
 import           Data.Graph.Orphans                 ()
-import qualified Data.Queue                         as Q
 import qualified Data.Graph.Mutable                 as Mut
 import           Data.Graph.Types                   (Vertex)
 import           Data.Graph.Types.Internal          ( MGraph(MGraph, mgraphVertexIndex)
                                                     , mgraphCurrentId, Vertex(Vertex)
+                                                    , getVertexInternal
+                                                    , IntPair(IntPair)
                                                     )
 import           Data.Hashable                      (Hashable)
 import qualified Data.HashMap.Mutable.Basic         as HM
 import qualified Data.Primitive.MutVar              as MV
 
 
--- | A graph with directed edges
+-- | A graph with directed edges.
+--   Can only contain a single edge from one vertex to another.
 data Digraph s g e v = Digraph
     { -- | The underlying graph
       dgGraph      :: !(MGraph s g e v)
-      -- | A map from a vertex id to its outgoing edges
-    , dgOutEdges   :: !(HM.MHashMap s (Vertex g) (Q.MQueue s e))
+      -- | A map from a vertex id to its outgoing edges.
+      --   Each outgoing vertex id is mapped to a "(fromNode, toNode) -> edge"-map
+      --    in order to increase the speed of looking up a specific edge.
+    , dgOutEdges   :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
     }
 
 instance Show (Digraph s g e v) where
@@ -77,6 +81,7 @@ lookupVertex
 lookupVertex (Digraph g _) =
     Mut.lookupVertex g
 
+-- | Insert/overwrite edge
 insertEdge
     :: (PrimMonad m, DirectedEdge e v)
     => Digraph (PrimState m) g e v
@@ -84,13 +89,16 @@ insertEdge
     -> m ()
 insertEdge graph@(Digraph _ outEdgeMap) edge = do
     fromVertex <- insertVertex graph (fromNode edge)
-    _          <- insertVertex graph (toNode edge)
-    edgeQueueM <- HM.lookup outEdgeMap fromVertex
-    case edgeQueueM of
-        Nothing ->
-            Q.singleton edge >>= HM.insert outEdgeMap fromVertex
-        Just queue ->
-            Q.enqueue queue edge
+    toVertex   <- insertVertex graph (toNode edge)
+    edgeMapM   <- HM.lookup outEdgeMap fromVertex
+    edgeMap <- case edgeMapM of
+        Nothing -> do
+            edgeMap <- HM.new
+            HM.insert outEdgeMap fromVertex edgeMap
+            return edgeMap
+        Just edgeMap -> return edgeMap
+    let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
+    HM.insert edgeMap intPair edge
 
 -- | Count of the number of vertices in the graph
 vertexCount
@@ -115,7 +123,7 @@ vertexLabels
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> m [v]                 -- ^ List of vertices in the graph
 vertexLabels (Digraph graph _) =
-    HM.foldM (\accum v _ -> return $ v : accum) [] (mgraphVertexIndex graph)
+    keySet (mgraphVertexIndex graph)
 
 -- | All edges going out of the given vertex
 outgoingEdges
@@ -124,8 +132,24 @@ outgoingEdges
     -> Vertex g                     -- ^ Vertex
     -> m [e]
 outgoingEdges (Digraph _ outEdgeMap) vertex = do
-    edgeQueueM <- HM.lookup outEdgeMap vertex
-    maybe (return []) Q.toList edgeQueueM
+    edgeMapM <- HM.lookup outEdgeMap vertex
+    maybe (return []) valueSet edgeMapM
+
+-- | Set of map keys
+keySet
+    :: (PrimMonad m)
+    => HM.MHashMap (PrimState m) k v
+    -> m [k]
+keySet =
+    HM.foldM (\accum k _ -> return $ k : accum) []
+
+-- | Set of map values
+valueSet
+    :: (PrimMonad m)
+    => HM.MHashMap (PrimState m) k v
+    -> m [v]
+valueSet =
+    HM.foldM (\accum _ v -> return $ v : accum) []
 
 -- | Copy a graph, modifying its edges as specified.
 -- NB: will only contain the vertices specified by the new edges.
