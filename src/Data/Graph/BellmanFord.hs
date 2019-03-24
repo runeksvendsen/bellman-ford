@@ -218,9 +218,9 @@ check graph state source calcWeight = do
     return True
   where
     checkNegativeCycle = do
-        negativeCycle <- MV.readMutVar (cycle state)
+        negativeCycle' <- MV.readMutVar (cycle state)
         -- check that weight of negative cycle is negative
-        let weight = sum $ map E.weight negativeCycle
+        let weight = sum $ map E.weight negativeCycle'
         when (weight >= 0.0) $
             error $ "negative cycle is non-negative: " ++ show weight
     checkNoCycle = do

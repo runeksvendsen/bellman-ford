@@ -16,9 +16,7 @@ where
 
 import           Data.Mutable                       (PrimMonad, PrimState)
 import qualified Data.Mutable                       as Mut
-import           Data.Vector.Generic.Mutable.Base   (MVector)
 import qualified Data.Vector                        as Vec
-import qualified Control.Monad.ST                   as ST
 
 
 -- | Mutable stack

@@ -3,8 +3,8 @@ module Main where
 import qualified BellmanFord.Spec                   as BellmanFord
 import qualified Queue.Spec                         as Queue
 
-import qualified Test.Tasty                        as Tasty
-import           Test.Tasty.SmallCheck             as SC
+import qualified Test.Tasty                         as Tasty
+import           Test.Tasty.SmallCheck              as SC
 
 
 main :: IO ()

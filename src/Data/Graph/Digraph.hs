@@ -123,7 +123,7 @@ outgoingEdges
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> Vertex g                     -- ^ Vertex
     -> m [e]
-outgoingEdges graph@(Digraph _ outEdgeMap) vertex = do
+outgoingEdges (Digraph _ outEdgeMap) vertex = do
     edgeQueueM <- HM.lookup outEdgeMap vertex
     maybe (return []) Q.toList edgeQueueM
 
