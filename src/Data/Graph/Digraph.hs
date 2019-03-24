@@ -1,8 +1,10 @@
+{-# LANGUAGE RankNTypes #-}
 module Data.Graph.Digraph
 ( -- * Types
   Digraph
   -- * Building
 , new
+, withGraph
 , fromEdges
 , insertVertex
 , lookupVertex
@@ -48,17 +50,33 @@ data Digraph s g e v = Digraph
 instance Show (Digraph s g e v) where
     show = const "Digraph"
 
-new :: (PrimMonad m)
+new
+    :: (PrimMonad m)
+    => m (Digraph (PrimState m) () e v)
+new = newInternal
+
+newInternal
+    :: (PrimMonad m)
     => m (Digraph (PrimState m) g e v)
-new =
+newInternal =
     Digraph <$> mgraph <*> HM.new
   where
     mgraph = MGraph <$> HM.new <*> MV.newMutVar 0 <*> HM.new
 
+-- | Safely work with 'Vertex' types.
+--   All 'Vertex'es returned by a function taking the provided
+--    'Digraph' as argument can only be used on this same 'Digraph'.
+withGraph
+    :: PrimMonad m
+    => (forall g. Digraph (PrimState m) g e v -> m a)   -- ^ Takes an empty 'Digraph' as argument
+    -> m a
+withGraph f =
+  newInternal >>= f
+
 fromEdges
     :: (PrimMonad m, DirectedEdge e v)
     => [e]
-    -> m (Digraph (PrimState m) g e v)
+    -> m (Digraph (PrimState m) () e v)
 fromEdges edges = do
     graph <- new
     forM_ edges (insertEdge graph)
@@ -174,7 +192,7 @@ mapEdges
     :: (PrimMonad m, DirectedEdge e' v)
     => (e -> m e')
     -> Digraph (PrimState m) g e v
-    -> m (Digraph (PrimState m) g e' v)
+    -> m (Digraph (PrimState m) () e' v)
 mapEdges f graph = do
     vertexList <- vertices graph
     newGraph <- new
