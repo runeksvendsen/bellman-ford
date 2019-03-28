@@ -9,8 +9,6 @@ module Data.Graph.BellmanFord
 , State
 , E.DirectedEdge(..)
 , E.WeightedEdge(..)
-  -- * Test
-, check
 )
 where
 
