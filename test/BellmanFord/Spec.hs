@@ -43,4 +43,5 @@ bellmanFord combine edges = do
     graph <- Lib.fromEdges edges
     vertices <- Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source -> do
-        Lib.bellmanFord graph source (\weight edge -> weight `combine` Lib.weight edge)
+        Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) $
+            Lib.bellmanFord source

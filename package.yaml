@@ -25,6 +25,8 @@ library:
   - impure-containers
   - primitive
   - hashable
+  - mtl
+  - transformers
   exposed-modules:
   - Data.Graph.BellmanFord
   - Data.Graph.Cycle

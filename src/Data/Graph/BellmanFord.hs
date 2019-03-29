@@ -1,12 +1,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Data.Graph.BellmanFord
-( -- * Algorithm
-  bellmanFord
+( -- * Runner
+  runBF
+  -- * Algorithm
+, bellmanFord
   -- * Queries
 , pathTo
 , negativeCycle
   -- * Types
-, State
 , E.DirectedEdge(..)
 , E.WeightedEdge(..)
 )
@@ -25,10 +26,38 @@ import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
+import qualified Control.Monad.Reader               as R
 
+
+type BF s g e v = R.ReaderT (State s g e v) (ST s)
 
 -- |
-data State s g e = State
+runBF
+    :: DG.Digraph s g e v
+    -> (Double -> e -> Double)
+    -- | Weight combination function "f".
+    --   "f a b" calculates a new distance to a "to" vertex.
+    ---  "a" is the distance to the edge's "from vertex",
+    --    and "b" is the edge going from "from" to "to". If the value returned by this
+    --    function is less than the current distance to "to", the distance to "to" will
+    --    be updated.
+    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
+    --   this function would simply be "(+)".
+    -> BF s g e v a
+    -> ST s a
+runBF graph weightCombine bf = do
+    mutState <- initState graph
+    let state = State graph weightCombine mutState
+    R.runReaderT bf state
+
+data State s g e v = State
+    { sGraph            :: DG.Digraph s g e v
+    , sWeightCombine    :: (Double -> e -> Double)
+    , sMState           :: MState s g e
+    }
+
+-- |
+data MState s g e = MState
     { -- | distTo[v] = distance of shortest s->v path
       distTo    :: STUArray s (Vertex g) Double
       -- | edgeTo[v] = last edge on shortest s->v path
@@ -46,60 +75,52 @@ data State s g e = State
 -- |
 bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
-    => DG.Digraph s g e v       -- ^ Graph
-    -> v                        -- ^ Source vertex
-    -> (Double -> e -> Double)
-    -- | Weight calculation function "f".
-    --   "f a b" calculates a new distance to a "to" vertex.
-    ---  "a" is the distance to the edge's "from vertex",
-    --    and "b" is the edge going from "from" to "to". If the value returned by this
-    --    function is less than the current distance to "to", the distance to "to" will
-    --    be updated.
-    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
-    --   this function would simply be "(+)".
-    -> ST s (State s g e)
-bellmanFord graph src calcWeight = do
+    => v    -- ^ Source vertex
+    -> BF s g e v ()
+bellmanFord src = do
+    graph <- R.asks sGraph
+    state <- R.asks sMState
     srcVertex <- U.lookupVertex graph src
-    state <- initState graph srcVertex
+    R.lift $ Arr.writeArray (distTo state) srcVertex 0.0
+    R.lift $ enqueueVertex state srcVertex
     go state
-    (`assert` ()) <$> check graph state srcVertex calcWeight
-    return state
+    (`assert` ()) <$> check srcVertex
   where
     go state = do
-        vertexM <- dequeueVertex state
+        vertexM <- R.lift $ dequeueVertex state
         case vertexM of
             Nothing     -> return ()
             Just vertex -> do
-                relax graph state vertex calcWeight
+                relax vertex
                 -- Recurse unless there's a negative cycle
-                unlessM (hasNegativeCycle state) (go state)
+                unlessM hasNegativeCycle (go state)
 
 -- |
 pathTo
     :: (E.DirectedEdge e v)
-    => DG.Digraph s g e v
-    -> State s g e
-    -> v                        -- ^ Target vertex
-    -> ST s (Maybe [e])
-pathTo graph state target = do
-    whenM (hasNegativeCycle state) $
+    => v                        -- ^ Target vertex
+    -> BF s g e v (Maybe [e])
+pathTo target = do
+    graph <- R.asks sGraph
+    state <- R.asks sMState
+    whenM hasNegativeCycle $
         error "Negative cost cycle exists"
     targetVertex <- U.lookupVertex graph target
-    pathExists <- hasPathTo state targetVertex
-    if pathExists
-        then Just <$> go [] targetVertex
+    pathExists <- R.lift $ hasPathTo state targetVertex
+    R.lift $ if pathExists
+        then Just <$> go graph state [] targetVertex
         else return Nothing
   where
-    go accum toVertex = do
+    go graph state accum toVertex = do
         edgeM <- Arr.readArray (edgeTo state) toVertex
         case edgeM of
             Nothing   -> return accum
             Just edge -> do
                 fromNode <- U.lookupVertex graph (E.fromNode edge)
-                go (edge : accum) fromNode
+                go graph state (edge : accum) fromNode
 
 hasPathTo
-    :: State s g e
+    :: MState s g e
     -> Vertex g
     -> ST s Bool
 hasPathTo state target =
@@ -108,25 +129,25 @@ hasPathTo state target =
 -- |
 relax
     :: (E.WeightedEdge e v Double, Show e)
-    => DG.Digraph s g e v
-    -> State s g e
-    -> Vertex g
-    -> (Double -> e -> Double)
-    -> ST s ()
-relax graph state vertex calcWeight = do
-    edgeList <- DG.outgoingEdges graph vertex
-    distToFrom <- Arr.readArray (distTo state) vertex
+    => Vertex g
+    -> BF s g e v ()
+relax vertex = do
+    graph      <- R.asks sGraph
+    calcWeight <- R.asks sWeightCombine
+    state      <- R.asks sMState
+    edgeList   <- DG.outgoingEdges graph vertex
+    distToFrom <- R.lift $ Arr.readArray (distTo state) vertex
     vertexCount <- DG.vertexCount graph
-    mapM_ (handleEdge vertexCount distToFrom) edgeList
+    mapM_ (handleEdge graph state calcWeight vertexCount distToFrom) edgeList
   where
-    handleEdge vertexCount distToFrom edge =
-        unlessM (hasNegativeCycle state) $ do
+    handleEdge graph state calcWeight vertexCount distToFrom edge =
+        unlessM hasNegativeCycle $ do
             to <- U.lookupVertex graph (E.toNode edge)
             -- Look up current distance to "to" vertex
-            distToTo <- Arr.readArray (distTo state) to
+            distToTo <- R.lift $ Arr.readArray (distTo state) to
             -- Actual relaxation
             let newToWeight = calcWeight distToFrom edge
-            when (distToTo > newToWeight) $ do
+            when (distToTo > newToWeight) $ R.lift $ do
                 Arr.writeArray (distTo state) to newToWeight
                 Arr.writeArray (edgeTo state) to (Just edge)
                 unlessM (Arr.readArray (onQueue state) to) $
@@ -134,63 +155,60 @@ relax graph state vertex calcWeight = do
             -- Update cost (number of calls to "relax")
             newCost <- MV.atomicModifyMutVar' (cost state)
                 (\cost' -> let newCost = cost' + 1 in (newCost, newCost))
-            when (newCost `mod` vertexCount == 0) $ do
-                findNegativeCycle state
+            when (newCost `mod` vertexCount == 0) $
+                findNegativeCycle
 
 findNegativeCycle
     :: (E.DirectedEdge e v, Show e)
-    => State s g e
-    -> ST s ()
-findNegativeCycle state = do
-    spEdges  <- Arr.getElems (edgeTo state)
+    => BF s g e v ()
+findNegativeCycle = do
+    state    <- R.asks sMState
+    spEdges  <- R.lift $ Arr.getElems (edgeTo state)
     sptGraph <- DG.fromEdges (catMaybes spEdges)
-    C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
+    R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
 
 hasNegativeCycle
-    :: State s g e
-    -> ST s Bool
-hasNegativeCycle = fmap (not . null) . MV.readMutVar . cycle
+    :: BF s g e v Bool
+hasNegativeCycle = do
+    state <- R.asks sMState
+    fmap (not . null) . MV.readMutVar . cycle $ state
 
 -- | Get negative cycle ('Nothing' in case there's no negative cycle)
 negativeCycle
-    :: State s g e
-    -> ST s (Maybe (NE.NonEmpty e))
-negativeCycle state = do
+    :: BF s g e v (Maybe (NE.NonEmpty e))
+negativeCycle = do
+    state    <- R.asks sMState
     edgeList <- MV.readMutVar $ cycle state
     case edgeList of
         []    -> return Nothing
         edges -> return $ Just $ NE.fromList edges
 
--- | Create initial 'State'
+-- | Create initial 'MState'
 initState
     :: DG.Digraph s g e v   -- ^ Graph
-    -> Vertex g             -- ^ Source vertex
-    -> ST s (State s g e)   -- ^ Initialized state
-initState graph src = do
+    -> ST s (MState s g e)   -- ^ Initialized state
+initState graph = do
     vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
-    state <- State
+    MState
         <$> Arr.newArray (Vertex 0, vertexCount) (1/0)      -- distTo
         <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
         <*> Arr.newArray (Vertex 0, vertexCount) False      -- onQueue
         <*> Q.new                                           -- queue
         <*> MV.newMutVar 0                                  -- cost
         <*> MV.newMutVar []                                 -- cycle
-    Arr.writeArray (distTo state) src 0.0
-    enqueueVertex state src
-    return state
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
-    :: State s g e
+    :: MState s g e
     -> Vertex g
     -> ST s ()
 enqueueVertex state vertex = do
-    Arr.writeArray (onQueue state) vertex True    -- Mark vertex as being in queue
-    Q.enqueue (queue state) vertex            -- Add vertex to queue
+    Arr.writeArray (onQueue state) vertex True  -- Mark vertex as being in queue
+    Q.enqueue (queue state) vertex              -- Add vertex to queue
 
 -- | Remove vertex from queue (helper function)
 dequeueVertex
-    :: State s g e
+    :: MState s g e
     -> ST s (Maybe (Vertex g))
 dequeueVertex state = do
     -- Remove vertex from queue
@@ -206,22 +224,24 @@ dequeueVertex state = do
 -- (ii') for all edges e = v->w on the SPT: distTo[w] == distTo[v] + e.weight()
 check
     :: (E.WeightedEdge e v Double, Eq e, Show e)
-    => DG.Digraph s g e v
-    -> State s g e
-    -> Vertex g
-    -> (Double -> e -> Double)
-    -> ST s Bool
-check graph state source calcWeight = do
-    ifM (hasNegativeCycle state) checkNegativeCycle checkNoCycle
+    => Vertex g
+    -> BF s g e v Bool
+check source = do
+    graph      <- R.asks sGraph
+    calcWeight <- R.asks sWeightCombine
+    state      <- R.asks sMState
+    ifM hasNegativeCycle 
+        (checkNegativeCycle state) 
+        (checkNoCycle state graph calcWeight)
     return True
   where
-    checkNegativeCycle = do
+    checkNegativeCycle state = do
         negativeCycle' <- MV.readMutVar (cycle state)
         -- check that weight of negative cycle is negative
         let weight = sum $ map E.weight negativeCycle'
         when (weight >= 0.0) $
             error $ "negative cycle is non-negative: " ++ show weight
-    checkNoCycle = do
+    checkNoCycle state graph calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
         whenM ((/= 0.0) <$> Arr.readArray (distTo state) source) $
             error "distTo source /= 0"
