@@ -3,23 +3,21 @@ module Queue.Spec
 where
 
 import           Data.Graph.Prelude
+import qualified Util.QuickSmall                    as QS
 import qualified Data.Queue                         as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations            (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
-import           Test.Tasty.SmallCheck              as SC
 
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Queue" $
-    [ Tasty.testGroup "dequeue"
-        [ SC.testProperty "returns enqueued items" enqueueListDeque
-        ]
-    , Tasty.testGroup "toList"
-        [ SC.testProperty "yields enqueued items" enqueueListStream
-        ]
+    [ Tasty.testGroup "dequeue" $
+        QS.testProperty "returns enqueued items" enqueueListDeque
+    , Tasty.testGroup "toList" $
+        QS.testProperty "yields enqueued items" enqueueListStream
     ]
 
 enqueueListDeque

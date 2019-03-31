@@ -6,6 +6,7 @@ module BellmanFord.Spec
 )
 where
 
+import qualified Util.QuickSmall                    as QS
 import           Data.Graph.Prelude
 import           Edge.Types
 import qualified Data.Graph.Digraph                 as Lib
@@ -15,23 +16,19 @@ import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations            (Expectation)
 import qualified Test.Tasty                         as Tasty
-import           Test.Tasty.SmallCheck              as SC
 
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord" $
-    [ Tasty.testGroup "additive (all weights)"
-        [ SC.testProperty "passes 'check'" $ \edges ->
+    [ Tasty.testGroup "additive (all weights)" $
+         QS.testProperty "passes 'check'" $ \edges ->
             bellmanFord (+) (edges :: [TestEdge])
-        ]
-    , Tasty.testGroup "multiplicative (positive weights)"
-        [ SC.testProperty "passes 'check'" $ \edges ->
+    , Tasty.testGroup "multiplicative (positive weights)" $
+         QS.testProperty "passes 'check'" $ \edges ->
             bellmanFord (*) (map positiveWeight edges :: [TestEdge])
-        ]
-    , Tasty.testGroup "additive (all weights) -log weight"
-        [ SC.testProperty "passes 'check'" $ \edges ->
+    , Tasty.testGroup "additive (all weights) -log weight" $
+         QS.testProperty "passes 'check'" $ \edges ->
             bellmanFord (+) (map NegLog edges :: [NegLog TestEdge])
-        ]
     ]
 
 bellmanFord

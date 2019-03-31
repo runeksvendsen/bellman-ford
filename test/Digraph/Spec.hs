@@ -6,6 +6,7 @@ module Digraph.Spec
 )
 where
 
+import qualified Util.QuickSmall                    as QS
 import           Edge.Types
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
@@ -14,17 +15,14 @@ import           Data.List                          (sort, nubBy)
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations            (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
-import           Test.Tasty.SmallCheck              as SC
 
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
-    [ Tasty.testGroup "removeEdge"
-        [ SC.testProperty "removes all vertices' outgoing edges" addRemoveEdges
-        ]
-    , Tasty.testGroup "insertEdge"
-        [ SC.testProperty "all edges present in 'outoingEdges'" addEdgesCheckOutgoing
-        ]
+    [ Tasty.testGroup "removeEdge" $
+        QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+    , Tasty.testGroup "insertEdge" $
+        QS.testProperty "all edges present in 'outoingEdges'" addEdgesCheckOutgoing
     ]
 
 addRemoveEdges
