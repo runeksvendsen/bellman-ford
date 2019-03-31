@@ -53,3 +53,4 @@ tests:
     - smallcheck
     - tasty-smallcheck
     - tasty
+    - random-shuffle

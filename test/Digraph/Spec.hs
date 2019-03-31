@@ -20,7 +20,9 @@ import           Test.Tasty.SmallCheck              as SC
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
     [ Tasty.testGroup "removeEdge"
-        [ SC.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+        [ SC.testProperty "removes all vertices' outgoing edges" $ \lol -> do
+            -- print lol
+            addRemoveEdges lol
         ]
     , Tasty.testGroup "insertEdge"
         [ SC.testProperty "all edges present in 'outoingEdges'" addEdgesCheckOutgoing
@@ -54,4 +56,6 @@ addEdgesCheckOutgoing edges = do
         outEdges <- Lib.outgoingEdges graph vertex
         return $ outEdges : accum
     removeDuplicateSrcDst = nubBy sameSrcDst
-    sameSrcDst edgeA edgeB = getEdge edgeA == getEdge edgeB
+    sameSrcDst edgeA edgeB =
+        getFrom edgeA == getFrom edgeB &&
+        getTo edgeA == getTo edgeB

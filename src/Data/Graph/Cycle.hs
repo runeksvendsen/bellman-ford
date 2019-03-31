@@ -1,7 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.Cycle
-( findCycle
+( -- * Library
+  findCycle
+  -- * Testing
+, verifyCycle
 )
 where
 
@@ -120,23 +123,25 @@ check state = do
     whenM (hasCycle state) $
         MV.readMutVar (cycle state) >>= maybe (return ()) error . verifyCycle
     return True
-  where
-    mkError prev next = printf "cycle edges %s and %s not incident" (show prev) (show next)
-    verifyCycle :: (E.DirectedEdge e a, Eq a, Show e) => [e] -> Maybe String
-    verifyCycle           [] =
-        Just "empty list of cycle edges"
-    verifyCycle [singleEdge] =
-        if E.fromNode singleEdge /= E.toNode singleEdge
-            then Just $ "bad single-edge cycle: " ++ show singleEdge
-            else Nothing
-    verifyCycle edges =
-        let compareEdges (prev, Nothing) next =
-                if E.toNode prev /= E.fromNode next
-                    then Just $ mkError prev next
-                    else Nothing
-            compareEdges (_, err) _ = err
-        in snd $
-                foldl'  (\accum next -> (next, compareEdges accum next))
-                        (last edges, Nothing)
-                        edges
-                        --  Starting with the last edge checks that "toNode last == fromNode first"
+
+-- | Verify that a given list of edges form a cycle.
+--   'Nothing' on no errors, otherwise a 'Just' with the description
+--      of the error.
+verifyCycle :: (E.DirectedEdge e a, Eq a, Show e) => [e] -> Maybe String
+verifyCycle           [] =
+    Just "empty list of cycle edges"
+verifyCycle [singleEdge] =
+    if E.fromNode singleEdge /= E.toNode singleEdge
+        then Just $ "bad single-edge cycle: " ++ show singleEdge
+        else Nothing
+verifyCycle edges =
+    let compareEdges (prev, Nothing) next =
+            if E.toNode prev /= E.fromNode next
+                then Just $ printf "cycle edges %s and %s not incident" (show prev) (show next)
+                else Nothing
+        compareEdges (_, err) _ = err
+    in snd $
+            foldl'  (\accum next -> (next, compareEdges accum next))
+                    (last edges, Nothing)
+                    edges
+                    --  Starting with the last edge checks that "toNode last == fromNode first"

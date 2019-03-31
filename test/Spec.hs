@@ -13,6 +13,6 @@ main =
     Tasty.defaultMain $
         Tasty.testGroup "Properties" $
             [ Tasty.localOption (SC.SmallCheckDepth 5) $ Queue.spec
-            , Tasty.localOption (SC.SmallCheckDepth 4) $ Digraph.spec
-            , Tasty.localOption (SC.SmallCheckDepth 4) $ BellmanFord.spec
+            , Tasty.localOption (SC.SmallCheckDepth 3) $ Digraph.spec
+            , Tasty.localOption (SC.SmallCheckDepth 3) $ BellmanFord.spec
             ]
