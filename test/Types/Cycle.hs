@@ -8,13 +8,13 @@ module Types.Cycle
 where
 
 import           Types.Edge
+import           Util.GenData                         (GenData(..))
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty                   as NE
 import           Data.Graph.Cycle                     (verifyCycle)
 import           Data.Maybe                           (isNothing)
 import qualified Control.Exception                    as Ex
-import           Control.Applicative                  (empty)
 import           Data.List                            (sort, nub)
 
 
@@ -22,23 +22,37 @@ newtype EdgeCycle = EdgeCycle { getEdgeCycle :: NE.NonEmpty TestEdge }
    deriving (Eq, Show, Ord)
 
 instance Monad m => SS.Serial m EdgeCycle where
-   series = do
-      edgeList <- edgeCycle
-      let isValidCycle = isNothing . verifyCycle . NE.toList
-      return $ EdgeCycle $ Ex.assert (isValidCycle edgeList) edgeList
+   series = edgeCycle
 
-edgeCycle :: Monad m => SS.Series m (NE.NonEmpty TestEdge)
+instance QC.Arbitrary EdgeCycle where
+   arbitrary = edgeCycle
+
+edgeCycle
+   :: ( GenData m [String]
+      , GenData m Double
+      )
+   => m EdgeCycle
 edgeCycle = do
+   edgeList <- edgeCycleEdges
+   let isValidCycle = isNothing . verifyCycle . NE.toList
+   return $ EdgeCycle $ Ex.assert (isValidCycle edgeList) edgeList
+
+edgeCycleEdges
+   :: ( GenData m [String]
+      , GenData m Double
+      )
+   => m (NE.NonEmpty TestEdge)
+edgeCycleEdges = do
     -- Data.Graph.Cycle does not support self-loops, so we
     --  make sure to generate at least 2 vertices
-    vertexList <- uniqueVertices `suchThat` ((> 1) . length)
+    vertexList <- uniqueElemList `suchThat` ((> 1) . length)
     --    Example data transformation for (pairUp . headToLast . duplicate):
     --       [a, b, c, d]
     --    => [a, a, b, b, c, c, d, d]
     --    => [a, b, b, c, c, d, d, a]
     --    => [(a,b), (b,c), (c,d), (d,a)]
-    let vertexPairs = pairUp $ headToLast (duplicate $ NE.toList vertexList)
-        toEdgeM (from,to) = TestEdge from to <$> SS.series
+    let vertexPairs = pairUp $ headToLast (duplicate vertexList)
+        toEdgeM (from,to) = TestEdge from to <$> genData
     NE.fromList <$> mapM toEdgeM vertexPairs
   where
     headToLast :: [a] -> [a]
@@ -51,25 +65,28 @@ edgeCycle = do
     duplicate [] = []
     duplicate (x:xs) = x:x:duplicate xs
 
-uniqueVertices :: Monad m => SS.Series m (NE.NonEmpty String)
-uniqueVertices =
-   NE.fromList <$> uniqueElemList `suchThat` ((> 0) . length)
-
-uniqueElemList :: (Ord a, SS.Serial m a) => SS.Series m [a]
+uniqueElemList :: (Ord a, GenData m [a]) => m [a]
 uniqueElemList =
-    SS.series `suchThat` containsUniqueElements
+    genData `suchThat` containsUniqueElements
   where
    containsUniqueElements list =
       (length . nub . sort $ list) == length list
-
-suchThat :: SS.Series m a -> (a -> Bool) -> SS.Series m a
-suchThat s p = s >>= \x -> if p x then pure x else empty
 
 newtype NegativeCycle = NegativeCycle { getNegativeCycle :: NE.NonEmpty TestEdge }
    deriving (Eq, Show, Ord)
 
 instance Monad m => SS.Serial m NegativeCycle where
-   series = do
-      let negativeWeightSum edgeCycle' =
-            sum (NE.map getWeight $ getEdgeCycle edgeCycle') < 0
-      NegativeCycle . getEdgeCycle <$> SS.series `suchThat` negativeWeightSum
+   series = negativeCycle
+
+instance QC.Arbitrary NegativeCycle where
+   arbitrary = negativeCycle
+
+negativeCycle
+   :: ( GenData m EdgeCycle
+      )
+   => m NegativeCycle
+negativeCycle =
+    NegativeCycle . getEdgeCycle <$> genData `suchThat` negativeWeightSum
+  where
+    negativeWeightSum edgeCycle' =
+        sum (NE.map getWeight $ getEdgeCycle edgeCycle') < 0
