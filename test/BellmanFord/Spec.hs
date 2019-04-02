@@ -6,6 +6,7 @@ module BellmanFord.Spec
 )
 where
 
+import qualified Util.QuickSmall                    as QS
 import           Data.Graph.Prelude
 import           Types.Edge
 import           Types.Cycle
@@ -19,7 +20,7 @@ import           Test.Hspec.Expectations            ( Expectation
                                                     , expectationFailure
                                                     )
 import qualified Test.Tasty                         as Tasty
-import qualified Test.Tasty.SmallCheck              as SC
+-- import qualified Test.Tasty.SmallCheck              as SC
 import qualified Data.List.NonEmpty                 as NE
 import qualified System.Random.Shuffle              as Shuffle
 import           Text.Printf                        (printf)
@@ -28,17 +29,15 @@ import           Text.Printf                        (printf)
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord" $
     [ Tasty.testGroup "passes 'check'" $
-        [ SC.testProperty "additive (all weights)" $ \edges ->
-            bellmanFord (+) (edges :: [TestEdge])
-        , SC.testProperty "multiplicative (positive weights)" $ \edges ->
-            bellmanFord (*) (map positiveWeight edges :: [TestEdge])
-        , SC.testProperty "additive (all weights) -log weight" $ \edges ->
-            bellmanFord (+) (map NegLog edges :: [NegLog TestEdge])
-        ]
+           QS.testProperty "additive (all weights)"
+                (\edges -> bellmanFord (+) (edges :: [TestEdge]))
+        ++ QS.testProperty "multiplicative (positive weights)"
+                (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
+        ++ QS.testProperty "additive (all weights) -log weight"
+            (\edges -> bellmanFord (+) (map NegLog edges :: [NegLog TestEdge]))
     , Tasty.testGroup "finds negative cycle" $
-       [ SC.testProperty "with no other edges in the graph" (findsNegativeCycle [])
-       , SC.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
-       ]
+          QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
+       ++ QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
     ]
 
 bellmanFord
@@ -57,7 +56,7 @@ bellmanFord combine edges = do
 --    "Lib.negativeCycle" finds only one negative cycle, equal
 --    to the list of input negative-cycle edges.
 findsNegativeCycle
-    :: [PositiveWeight TestEdge]
+    :: [PositiveWeight]
     -> NegativeCycle
     -> Expectation
 findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
@@ -70,15 +69,15 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
         state <- Lib.bellmanFord graph (head shuffledVertices) weightCombFun
         Lib.negativeCycle state
     case negativeCycleM of
-        Nothing -> 
-            let errFormatStr = unlines 
+        Nothing ->
+            let errFormatStr = unlines
                     [ "no cycle found."
-                    , "expected: %s" 
-                    , "positive edges: %s" 
+                    , "expected: %s"
+                    , "positive edges: %s"
                     ]
             in expectationFailure $ printf errFormatStr (show cycleEdges) (show positiveEdges)
         Just returnedCycle ->
-            returnedCycle `shouldSatisfy` \cycle' -> 
+            returnedCycle `shouldSatisfy` \cycle' ->
                 cycle' == cycleEdges || cycle' == NE.reverse cycleEdges
                 -- The returned cycle may be in the opposite direction
                 --  of the input cycle

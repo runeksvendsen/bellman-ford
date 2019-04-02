@@ -10,6 +10,9 @@ homepage: https://github.com/runeksvendsen/bellman-ford#readme
 extra-source-files:
 - README.md
 
+default-extensions:
+- FlexibleContexts
+
 dependencies:
 - base >=4.7 && <5
 
@@ -52,5 +55,6 @@ tests:
     - hspec-smallcheck
     - smallcheck
     - tasty-smallcheck
+    - tasty-quickcheck
     - tasty
     - random-shuffle

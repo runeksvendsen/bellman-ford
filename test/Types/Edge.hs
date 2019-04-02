@@ -11,6 +11,7 @@ where
 import           Data.Graph.Digraph                   as Lib
 import           Data.Graph.Edge                      as Lib
 import qualified Test.SmallCheck.Series               as SS
+import qualified Test.Tasty.QuickCheck                as QC
 
 
 data TestEdge = TestEdge
@@ -29,17 +30,28 @@ instance Lib.WeightedEdge TestEdge String Double where
 instance Monad m => SS.Serial m TestEdge where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
 
-newtype PositiveWeight a = PositiveWeight { positiveWeight :: a }
+instance QC.Arbitrary TestEdge where
+   arbitrary = TestEdge <$> QC.arbitrary <*> QC.arbitrary <*> QC.arbitrary
+
+newtype PositiveWeight = PositiveWeight { positiveWeight :: TestEdge }
    deriving (Eq, Ord)
 
-instance Show (PositiveWeight TestEdge) where
+instance Show PositiveWeight where
    show = show . positiveWeight
 
-instance Monad m => SS.Serial m (PositiveWeight TestEdge) where
+instance Monad m => SS.Serial m PositiveWeight where
    series = do
       SS.Positive weight' <- SS.series
       edge <- SS.series
       return $ PositiveWeight $ edge { getWeight = weight' }
+
+instance QC.Arbitrary PositiveWeight where
+   arbitrary =
+      let positiveEdge =
+            TestEdge <$> QC.arbitrary
+                     <*> QC.arbitrary
+                     <*> fmap QC.getPositive QC.arbitrary
+      in PositiveWeight <$> positiveEdge
 
 -- | The negative log of something
 newtype NegLog a = NegLog { getLog :: a }

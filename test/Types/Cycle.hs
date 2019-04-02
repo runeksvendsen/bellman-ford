@@ -9,6 +9,7 @@ where
 
 import           Types.Edge
 import qualified Test.SmallCheck.Series               as SS
+import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty                   as NE
 import           Data.Graph.Cycle                     (verifyCycle)
 import           Data.Maybe                           (isNothing)
@@ -55,10 +56,10 @@ uniqueVertices =
    NE.fromList <$> uniqueElemList `suchThat` ((> 0) . length)
 
 uniqueElemList :: (Ord a, SS.Serial m a) => SS.Series m [a]
-uniqueElemList = 
+uniqueElemList =
     SS.series `suchThat` containsUniqueElements
   where
-   containsUniqueElements list = 
+   containsUniqueElements list =
       (length . nub . sort $ list) == length list
 
 suchThat :: SS.Series m a -> (a -> Bool) -> SS.Series m a
