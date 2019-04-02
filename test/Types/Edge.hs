@@ -30,7 +30,10 @@ instance Monad m => SS.Serial m TestEdge where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
 
 newtype PositiveWeight a = PositiveWeight { positiveWeight :: a }
-   deriving (Eq, Show, Ord)
+   deriving (Eq, Ord)
+
+instance Show (PositiveWeight TestEdge) where
+   show = show . positiveWeight
 
 instance Monad m => SS.Serial m (PositiveWeight TestEdge) where
    series = do

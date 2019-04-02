@@ -14,11 +14,15 @@ import qualified Data.Graph.BellmanFord             as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations            (Expectation, shouldBe)
+import           Test.Hspec.Expectations            ( Expectation
+                                                    , shouldSatisfy
+                                                    , expectationFailure
+                                                    )
 import qualified Test.Tasty                         as Tasty
 import qualified Test.Tasty.SmallCheck              as SC
 import qualified Data.List.NonEmpty                 as NE
 import qualified System.Random.Shuffle              as Shuffle
+import           Text.Printf                        (printf)
 
 
 spec :: Tasty.TestTree
@@ -31,7 +35,10 @@ spec = Tasty.testGroup "BellmanFord" $
         , SC.testProperty "additive (all weights) -log weight" $ \edges ->
             bellmanFord (+) (map NegLog edges :: [NegLog TestEdge])
         ]
-    , SC.testProperty "finds negative cycle" findsNegativeCycle
+    , Tasty.testGroup "finds negative cycle" $
+       [ SC.testProperty "with no other edges in the graph" (findsNegativeCycle [])
+       , SC.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
+       ]
     ]
 
 bellmanFord
@@ -50,17 +57,31 @@ bellmanFord combine edges = do
 --    "Lib.negativeCycle" finds only one negative cycle, equal
 --    to the list of input negative-cycle edges.
 findsNegativeCycle
-    :: NegativeCycle
-    -> [PositiveWeight TestEdge]
+    :: [PositiveWeight TestEdge]
+    -> NegativeCycle
     -> Expectation
-findsNegativeCycle (NegativeCycle cycleEdges) positiveEdges = do
+findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     graph <- fromShuffledEdges (map positiveWeight positiveEdges)
+    -- graph <- Lib.fromEdges []
     mapM_ (Lib.insertEdge graph) =<< Shuffle.shuffleM (NE.toList cycleEdges)
-    shuffledVertices <- Shuffle.shuffleM =<< Lib.vertexLabels graph
+    let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
+    shuffledVertices <- Shuffle.shuffleM cycleVertices
     negativeCycleM <- ST.stToIO $ do
         state <- Lib.bellmanFord graph (head shuffledVertices) weightCombFun
         Lib.negativeCycle state
-    negativeCycleM `shouldBe` Just cycleEdges
+    case negativeCycleM of
+        Nothing -> 
+            let errFormatStr = unlines 
+                    [ "no cycle found."
+                    , "expected: %s" 
+                    , "positive edges: %s" 
+                    ]
+            in expectationFailure $ printf errFormatStr (show cycleEdges) (show positiveEdges)
+        Just returnedCycle ->
+            returnedCycle `shouldSatisfy` \cycle' -> 
+                cycle' == cycleEdges || cycle' == NE.reverse cycleEdges
+                -- The returned cycle may be in the opposite direction
+                --  of the input cycle
   where
     weightCombFun weight edge = weight + Lib.weight edge
 

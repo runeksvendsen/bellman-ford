@@ -16,8 +16,6 @@ import qualified Control.Exception                    as Ex
 import           Control.Applicative                  (empty)
 import           Data.List                            (sort, nub)
 
-import Debug.Trace
-
 
 newtype EdgeCycle = EdgeCycle { getEdgeCycle :: NE.NonEmpty TestEdge }
    deriving (Eq, Show, Ord)
@@ -38,8 +36,6 @@ edgeCycle = do
     --    => [a, a, b, b, c, c, d, d]
     --    => [a, b, b, c, c, d, d, a]
     --    => [(a,b), (b,c), (c,d), (d,a)]
-    show vertexList `trace` return ()
-    show (duplicate $ NE.toList vertexList) `trace` return ()
     let vertexPairs = pairUp $ headToLast (duplicate $ NE.toList vertexList)
         toEdgeM (from,to) = TestEdge from to <$> SS.series
     NE.fromList <$> mapM toEdgeM vertexPairs
