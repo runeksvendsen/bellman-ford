@@ -6,7 +6,7 @@ module Digraph.Spec
 )
 where
 
-import           Edge.Types
+import           Types.Edge
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
 import           Data.List                          (sort, nubBy)

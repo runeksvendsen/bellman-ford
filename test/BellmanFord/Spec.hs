@@ -7,7 +7,8 @@ module BellmanFord.Spec
 where
 
 import           Data.Graph.Prelude
-import           Edge.Types
+import           Types.Edge
+import           Types.Cycle
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
@@ -53,14 +54,14 @@ findsNegativeCycle
     -> [PositiveWeight TestEdge]
     -> Expectation
 findsNegativeCycle (NegativeCycle cycleEdges) positiveEdges = do
-    graph <- fromShuffledEdges allEdges
+    graph <- fromShuffledEdges (map positiveWeight positiveEdges)
+    mapM_ (Lib.insertEdge graph) =<< Shuffle.shuffleM (NE.toList cycleEdges)
     shuffledVertices <- Shuffle.shuffleM =<< Lib.vertexLabels graph
-    Just negativeCycle <- ST.stToIO $ do
+    negativeCycleM <- ST.stToIO $ do
         state <- Lib.bellmanFord graph (head shuffledVertices) weightCombFun
         Lib.negativeCycle state
-    negativeCycle `shouldBe` cycleEdges
+    negativeCycleM `shouldBe` Just cycleEdges
   where
-    allEdges = NE.toList cycleEdges ++ map positiveWeight positiveEdges
     weightCombFun weight edge = weight + Lib.weight edge
 
 fromShuffledEdges edges =
