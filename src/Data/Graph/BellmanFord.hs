@@ -11,6 +11,8 @@ module Data.Graph.BellmanFord
   -- * Types
 , E.DirectedEdge(..)
 , E.WeightedEdge(..)
+  -- * Extras
+, getGraph
 )
 where
 
@@ -50,6 +52,10 @@ runBF graph weightCombine bf = do
     mutState <- initState graph
     let state = State graph weightCombine mutState
     R.runReaderT bf state
+
+getGraph
+    :: BF s g e v (DG.Digraph s g e v)
+getGraph = R.asks sGraph
 
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
