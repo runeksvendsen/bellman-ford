@@ -1,7 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Data.Graph.BellmanFord
-( -- * Runner
+( -- * Monad
   runBF
+, BF
   -- * Algorithm
 , bellmanFord
   -- * Queries
@@ -230,8 +231,8 @@ check source = do
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    ifM hasNegativeCycle 
-        (checkNegativeCycle state) 
+    ifM hasNegativeCycle
+        (checkNegativeCycle state)
         (checkNoCycle state graph calcWeight)
     return True
   where
