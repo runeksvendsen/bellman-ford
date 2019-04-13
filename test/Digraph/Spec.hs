@@ -24,6 +24,8 @@ spec = Tasty.testGroup "Digraph" $
         QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
     , Tasty.testGroup "insertEdge" $
         QS.testProperty "all edges present in 'outoingEdges'" addEdgesCheckOutgoing
+    , Tasty.testGroup "edgeCount" $
+        QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
     ]
 
 addRemoveEdges
@@ -56,3 +58,26 @@ addEdgesCheckOutgoing edges = do
     sameSrcDst edgeA edgeB =
         getFrom edgeA == getFrom edgeB &&
         getTo edgeA == getTo edgeB
+
+edgeCountEqualsOutgoingCountForallVertices
+    :: [TestEdge]
+    -> Expectation
+edgeCountEqualsOutgoingCountForallVertices edges = do
+    graph <- Lib.fromEdges edges
+    edgeCountLib      <- Lib.edgeCount graph
+    edgeCountOutgoing <- edgeCountTest graph
+    edgeCountLib `shouldBe` edgeCountOutgoing
+
+-- | Count of the number of edges in the graph
+--    by counting all outgoing edges for all vertices returned by 'Lib.vertices'.
+--   Should always return the same as 'Lib.edgeCount'.
+edgeCountTest
+    :: (PrimMonad m)
+    => Lib.Digraph (PrimState m) g e v  -- ^ Graph
+    -> m Word                           -- ^ Edge count
+edgeCountTest dg =
+    Lib.vertices dg >>= foldM lookupCount 0
+  where
+    lookupCount totalCount vertex =
+        Lib.outgoingEdges dg vertex >>=
+            foldM (\innerCount _ -> return $ innerCount+1) totalCount

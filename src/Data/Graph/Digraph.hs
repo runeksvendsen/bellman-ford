@@ -13,6 +13,7 @@ module Data.Graph.Digraph
 , mapEdges
   -- * Queries
 , vertexCount
+, edgeCount
 , vertices
 , vertexLabels
 , outgoingEdges
@@ -142,6 +143,16 @@ vertexCount
     -> m Word                       -- ^ Vertex count
 vertexCount (Digraph graph _) =
     fromIntegral <$> MV.readMutVar (mgraphCurrentId graph)
+
+-- | Count of the number of edges in the graph
+edgeCount
+    :: (PrimMonad m)
+    => Digraph (PrimState m) g e v  -- ^ Graph
+    -> m Word                       -- ^ Edge count
+edgeCount (Digraph _ outEdgeMap) =
+    HM.foldM countEdges 0 outEdgeMap
+  where
+    countEdges count _ = HM.foldM (\innerCount _ _ -> return $ innerCount+1) count
 
 -- | All the vertices in the graph
 vertices
