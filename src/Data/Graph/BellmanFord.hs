@@ -13,6 +13,8 @@ module Data.Graph.BellmanFord
 , E.WeightedEdge(..)
   -- * Extras
 , getGraph
+, insertEdge
+, removeEdge
 )
 where
 
@@ -56,6 +58,22 @@ runBF graph weightCombine bf = do
 getGraph
     :: BF s g e v (DG.Digraph s g e v)
 getGraph = R.asks sGraph
+
+insertEdge
+    :: (E.DirectedEdge e v)
+    => e
+    -> BF s g e v ()
+insertEdge edge = do
+    graph <- getGraph
+    DG.insertEdge graph edge
+
+removeEdge
+    :: (E.DirectedEdge e v)
+    => e
+    -> BF s g e v ()
+removeEdge edge = do
+    graph <- getGraph
+    DG.removeEdge graph edge
 
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
