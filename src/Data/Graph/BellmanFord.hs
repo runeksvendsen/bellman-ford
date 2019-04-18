@@ -32,6 +32,7 @@ import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
 import qualified Control.Monad.Reader               as R
+import           Data.Ix                            (range)
 
 
 type BF s g e v = R.ReaderT (State s g e v) (ST s)
@@ -97,12 +98,40 @@ data MState s g e = MState
     , cycle     :: MV.MutVar s [e]
     }
 
+resetState
+    :: BF s g e v ()
+resetState = do
+    mutState <- R.asks sMState
+    R.lift $ do
+        fillArray (distTo mutState) (1/0)
+        fillArray (edgeTo mutState) Nothing
+        fillArray (onQueue mutState) False
+        emptyQueue (queue mutState)
+        MV.atomicModifyMutVar' (cost mutState) (const (0, ()))
+        MV.atomicModifyMutVar' (cycle mutState) (const ([], ()))
+  where
+    emptyQueue
+        :: Q.MQueue s (Vertex g)
+        -> ST s ()
+    emptyQueue queue' = do
+        let go = maybe (return ()) (\_ -> Q.dequeue queue' >>= go)
+        Q.dequeue queue' >>= go
+    fillArray
+        :: Arr.MArray a e (ST s)
+        => a (Vertex g) e
+        -> e
+        -> (ST s) ()
+    fillArray arr value = do
+        indices <- range <$> Arr.getBounds arr
+        forM_ indices (\idx -> Arr.writeArray arr idx value)
+
 -- |
 bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
     => v    -- ^ Source vertex
     -> BF s g e v ()
 bellmanFord src = do
+    resetState -- HACK: make things work for now before algorithm is improved
     graph <- R.asks sGraph
     state <- R.asks sMState
     srcVertex <- U.lookupVertex graph src
