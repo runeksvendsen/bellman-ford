@@ -50,6 +50,10 @@ tests:
     - -fno-ignore-asserts
     dependencies:
     - bellman-ford
+    - primitive
+    - random-shuffle
+    - MonadRandom
+    - transformers
     - hspec-expectations
     - hspec-smallcheck
     - smallcheck

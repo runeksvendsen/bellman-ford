@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Edge.Types
 ( TestEdge(..)
+, Unweighted(..)
 , PositiveWeight(..)
 , NegLog(..)
 )
@@ -26,6 +27,13 @@ instance Lib.WeightedEdge TestEdge String Double where
 
 instance Monad m => SS.Serial m TestEdge where
    series = TestEdge <$> SS.series <*> SS.series
+
+newtype Unweighted a = Unweighted { unweighted :: a }
+   deriving (Eq, Show, Ord)
+
+instance Monad m => SS.Serial m (Unweighted TestEdge) where
+   series =
+      Unweighted <$> (TestEdge <$> SS.series <*> return 0.0)
 
 newtype PositiveWeight a = PositiveWeight { positiveWeight :: a }
    deriving (Eq, Show, Ord)

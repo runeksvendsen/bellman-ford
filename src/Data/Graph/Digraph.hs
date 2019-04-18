@@ -2,6 +2,7 @@
 module Data.Graph.Digraph
 ( -- * Types
   Digraph
+, Vertex
   -- * Building
 , new
 , withGraph
@@ -16,6 +17,7 @@ module Data.Graph.Digraph
 , vertices
 , vertexLabels
 , outgoingEdges
+, incomingEdges
   -- * Re-exports
 , DirectedEdge(..)
 )
@@ -45,6 +47,8 @@ data Digraph s g e v = Digraph
       --   Each outgoing vertex id is mapped to a "(fromNode, toNode) -> edge"-map
       --    in order to increase the speed of looking up a specific edge.
     , dgOutEdges   :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
+      -- | A map from a vertex id to its incoming edges.
+    , dgInEdges    :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
     }
 
 instance Show (Digraph s g e v) where
@@ -59,7 +63,7 @@ newInternal
     :: (PrimMonad m)
     => m (Digraph (PrimState m) g e v)
 newInternal =
-    Digraph <$> mgraph <*> HM.new
+    Digraph <$> mgraph <*> HM.new <*> HM.new
   where
     mgraph = MGraph <$> HM.new <*> MV.newMutVar 0 <*> HM.new
 
@@ -88,7 +92,7 @@ insertVertex
     => Digraph (PrimState m) g e v
     -> v
     -> m (Vertex g)
-insertVertex (Digraph g _) =
+insertVertex (Digraph g _ _) =
     Mut.insertVertex g
 
 -- | Look up vertex by label
@@ -97,7 +101,7 @@ lookupVertex
     => Digraph (PrimState m) g e v
     -> v
     -> m (Maybe (Vertex g))
-lookupVertex (Digraph g _) =
+lookupVertex (Digraph g _ _) =
     Mut.lookupVertex g
 
 -- | Insert/overwrite edge
@@ -106,18 +110,22 @@ insertEdge
     => Digraph (PrimState m) g e v
     -> e
     -> m ()
-insertEdge graph@(Digraph _ outEdgeMap) edge = do
+insertEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
     fromVertex <- insertVertex graph (fromNode edge)
     toVertex   <- insertVertex graph (toNode edge)
-    edgeMapM   <- HM.lookup outEdgeMap fromVertex
-    edgeMap <- case edgeMapM of
-        Nothing -> do
-            edgeMap <- HM.new
-            HM.insert outEdgeMap fromVertex edgeMap
-            return edgeMap
-        Just edgeMap -> return edgeMap
     let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
-    HM.insert edgeMap intPair edge
+    edgeMapInsert outEdgeMap fromVertex intPair
+    edgeMapInsert inEdgeMap toVertex intPair
+  where
+    edgeMapInsert edgeMap vertex edgeKey = do
+        vertexEdgeMapM <- HM.lookup edgeMap vertex
+        vertexEdgeMap <- case vertexEdgeMapM of
+            Nothing -> do
+                vertexEdgeMap <- HM.new
+                HM.insert edgeMap vertex vertexEdgeMap
+                return vertexEdgeMap
+            Just vertexEdgeMap -> return vertexEdgeMap
+        HM.insert vertexEdgeMap edgeKey edge
 
 -- | Remove edge
 removeEdge
@@ -125,22 +133,26 @@ removeEdge
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> e                            -- ^ Edge to remove
     -> m ()
-removeEdge graph@(Digraph _ outEdgeMap) edge = do
+removeEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
     fromVertex <- insertVertex graph (fromNode edge)
     toVertex   <- insertVertex graph (toNode edge)
-    edgeMapM   <- HM.lookup outEdgeMap fromVertex
-    case edgeMapM of
-        Nothing      -> return ()    -- no outgoing edges at all from "from"
-        Just edgeMap -> do
-            let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
-            HM.delete edgeMap intPair
+    let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
+    edgeMapRemove outEdgeMap fromVertex intPair
+    edgeMapRemove inEdgeMap toVertex intPair
+  where
+    edgeMapRemove edgeMap vertex edgeKey = do
+        edgeMapM <- HM.lookup edgeMap vertex
+        case edgeMapM of
+            Nothing            -> return ()
+            Just vertexEdgeMap ->
+                HM.delete vertexEdgeMap edgeKey
 
 -- | Count of the number of vertices in the graph
 vertexCount
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> m Word                       -- ^ Vertex count
-vertexCount (Digraph graph _) =
+vertexCount (Digraph graph _ _) =
     fromIntegral <$> MV.readMutVar (mgraphCurrentId graph)
 
 -- | All the vertices in the graph
@@ -148,7 +160,7 @@ vertices
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> m [Vertex g]                 -- ^ List of vertices in the graph
-vertices (Digraph graph _) = do
+vertices (Digraph graph _ _) = do
     currId <- MV.readMutVar (mgraphCurrentId graph)
     return $ fmap Vertex [0..currId-1]
 
@@ -157,7 +169,7 @@ vertexLabels
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> m [v]                 -- ^ List of vertices in the graph
-vertexLabels (Digraph graph _) =
+vertexLabels (Digraph graph _ _) =
     keySet (mgraphVertexIndex graph)
 
 -- | All edges going out of the given vertex
@@ -166,8 +178,18 @@ outgoingEdges
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> Vertex g                     -- ^ Vertex
     -> m [e]
-outgoingEdges (Digraph _ outEdgeMap) vertex = do
+outgoingEdges (Digraph _ outEdgeMap _) vertex = do
     edgeMapM <- HM.lookup outEdgeMap vertex
+    maybe (return []) valueSet edgeMapM
+
+-- | All edges into the given vertex
+incomingEdges
+    :: (PrimMonad m)
+    => Digraph (PrimState m) g e v  -- ^ Graph
+    -> Vertex g                     -- ^ Vertex
+    -> m [e]
+incomingEdges (Digraph _ _ inEdgeMap) vertex = do
+    edgeMapM <- HM.lookup inEdgeMap vertex
     maybe (return []) valueSet edgeMapM
 
 -- | Set of map keys
