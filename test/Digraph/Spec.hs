@@ -7,7 +7,9 @@ module Digraph.Spec
 where
 
 import           Digraph.Types                      (ModifyGraph(..), modify)
-import           Edge.Types
+import           Types.Edge
+import qualified Util.QuickSmall                    as QS
+
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
 import           Data.List                          (sort, nubBy)
@@ -21,17 +23,16 @@ import           Test.Tasty.SmallCheck              as SC
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
-    [ Tasty.testGroup "removeEdge"
-        [ SC.testProperty "removes all vertices' outgoing edges" addRemoveEdges
-        ]
-    , Tasty.testGroup "insertEdge"
-        [ SC.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing Lib.outgoingEdges)
-        , SC.testProperty "all edges present in 'incomingEdges'" (addEdgesCheckInOutgoing Lib.incomingEdges)
-        ]
-    , Tasty.localOption (SC.SmallCheckDepth 5) $
-      Tasty.testGroup "outgoing/incoming edges"
-        [ SC.testProperty "the same after random inserts/removals" incomingShouldBeOutgoing
-        ]
+    [ Tasty.testGroup "removeEdge" $
+        QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+    , Tasty.testGroup "insertEdge" $
+        QS.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing Lib.outgoingEdges)
+        ++ QS.testProperty "all edges present in 'incomingEdges'" (addEdgesCheckInOutgoing Lib.incomingEdges)
+    , Tasty.testGroup "edgeCount" $
+        QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
+    , Tasty.localOption (SC.SmallCheckDepth 4) $
+      Tasty.testGroup "outgoing/incoming edges" $
+        QS.testProperty "the same after random inserts/removals" incomingShouldBeOutgoing
     ]
 
 addRemoveEdges
@@ -62,7 +63,9 @@ addEdgesCheckInOutgoing inOutEdges edges = do
         outEdges <- inOutEdges graph vertex
         return $ outEdges : accum
     removeDuplicateSrcDst = nubBy sameSrcDst
-    sameSrcDst edgeA edgeB = getEdge edgeA == getEdge edgeB
+    sameSrcDst edgeA edgeB =
+        getFrom edgeA == getFrom edgeB &&
+        getTo edgeA == getTo edgeB
 
 incomingShouldBeOutgoing
     :: [ModifyGraph (Unweighted TestEdge)]
@@ -79,3 +82,26 @@ incomingShouldBeOutgoing modifyGraphsUnweighted = do
   where
     collectInOutgoing inOutEdges graph accum vertex =
         (: accum) <$> inOutEdges graph vertex
+
+edgeCountEqualsOutgoingCountForallVertices
+    :: [TestEdge]
+    -> Expectation
+edgeCountEqualsOutgoingCountForallVertices edges = do
+    graph <- Lib.fromEdges edges
+    edgeCountLib      <- Lib.edgeCount graph
+    edgeCountOutgoing <- edgeCountTest graph
+    edgeCountLib `shouldBe` edgeCountOutgoing
+
+-- | Count of the number of edges in the graph
+--    by counting all outgoing edges for all vertices returned by 'Lib.vertices'.
+--   Should always return the same as 'Lib.edgeCount'.
+edgeCountTest
+    :: (PrimMonad m)
+    => Lib.Digraph (PrimState m) g e v  -- ^ Graph
+    -> m Word                           -- ^ Edge count
+edgeCountTest dg =
+    Lib.vertices dg >>= foldM lookupCount 0
+  where
+    lookupCount totalCount vertex =
+        Lib.outgoingEdges dg vertex >>=
+            foldM (\innerCount _ -> return $ innerCount+1) totalCount

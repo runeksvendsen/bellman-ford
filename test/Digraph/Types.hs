@@ -11,6 +11,8 @@ where
 
 import           Data.Graph.Digraph                   as Lib
 import qualified Test.SmallCheck.Series               as SS
+import qualified Test.Tasty.QuickCheck                as QC
+import qualified Util.GenData                         as GD
 import           GHC.Generics                         (Generic)
 import           Control.Monad.Primitive              (PrimMonad, PrimState)
 import qualified System.Random.Shuffle                as Shuffle
@@ -28,6 +30,10 @@ instance (SS.Serial m e, Random.MonadRandom m) => SS.Serial m [ModifyGraph e] wh
     series = do
         edges <- SS.series
         lift $ Shuffle.shuffleM $ fmap InsertEdge edges ++ fmap RemoveEdge edges
+
+instance QC.Arbitrary e => QC.Arbitrary (ModifyGraph e) where
+    arbitrary =
+        QC.oneof [InsertEdge <$> QC.arbitrary, RemoveEdge <$> QC.arbitrary]
 
 modify
     :: (PrimMonad m, Lib.DirectedEdge e v)
