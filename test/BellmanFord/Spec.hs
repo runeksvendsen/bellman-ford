@@ -27,17 +27,19 @@ import           Text.Printf                        (printf)
 
 
 spec :: Tasty.TestTree
-spec = Tasty.testGroup "BellmanFord" $
-    [ Tasty.testGroup "passes 'check'" $
-           QS.testProperty "additive (all weights)"
-                (\edges -> bellmanFord (+) (edges :: [TestEdge]))
-        ++ QS.testProperty "multiplicative (positive weights)"
-                (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
-        ++ QS.testProperty "additive (all weights) -log weight"
+spec = Tasty.testGroup "BellmanFord"
+    [ Tasty.testGroup "passes 'check'"
+        [ QS.testProperty "additive (all weights)"
+            (\edges -> bellmanFord (+) (edges :: [TestEdge]))
+        , QS.testProperty "multiplicative (positive weights)"
+            (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
+        , QS.testProperty "additive (all weights) -log weight"
             (\edges -> bellmanFord (+) (map NegLog edges :: [NegLog TestEdge]))
-    , Tasty.testGroup "finds negative cycle" $
-          QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
-       ++ QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
+        ]
+    , Tasty.testGroup "finds negative cycle"
+       [ QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
+       , QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
+       ]
     ]
 
 bellmanFord

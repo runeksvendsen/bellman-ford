@@ -12,8 +12,9 @@ import qualified Test.Tasty                         as Tasty
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Util" $
-    [ Tasty.testGroup "sameUniqueSequenceAs" $
-        QS.testProperty "true for all instatiations of a sequence" $
+    [ Tasty.testGroup "sameUniqueSequenceAs"
+        [ QS.testProperty "true for all instatiations of a sequence" $
             \(ListWithItem lst item) ->
                 NE.toList lst `Util.test_sameUniqueSequenceAs` (item :: Int)
+        ]
     ]

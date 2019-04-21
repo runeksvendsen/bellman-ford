@@ -14,10 +14,12 @@ import qualified Test.Tasty                         as Tasty
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Queue" $
-    [ Tasty.testGroup "dequeue" $
-        QS.testProperty "returns enqueued items" enqueueListDeque
-    , Tasty.testGroup "toList" $
-        QS.testProperty "yields enqueued items" enqueueListStream
+    [ Tasty.testGroup "dequeue"
+        [ QS.testProperty "returns enqueued items" enqueueListDeque
+        ]
+    , Tasty.testGroup "toList"
+        [ QS.testProperty "yields enqueued items" enqueueListStream
+        ]
     ]
 
 enqueueListDeque

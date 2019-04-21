@@ -23,16 +23,20 @@ import           Test.Tasty.SmallCheck              as SC
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
-    [ Tasty.testGroup "removeEdge" $
-        QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
-    , Tasty.testGroup "insertEdge" $
-        QS.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing Lib.outgoingEdges)
-        ++ QS.testProperty "all edges present in 'incomingEdges'" (addEdgesCheckInOutgoing Lib.incomingEdges)
-    , Tasty.testGroup "edgeCount" $
-        QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
+    [ Tasty.testGroup "removeEdge"
+       [ QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+       ]
+    , Tasty.testGroup "insertEdge"
+       [ QS.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing Lib.outgoingEdges)
+       , QS.testProperty "all edges present in 'incomingEdges'" (addEdgesCheckInOutgoing Lib.incomingEdges)
+       ]
+    , Tasty.testGroup "edgeCount"
+       [ QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
+       ]
     , Tasty.localOption (SC.SmallCheckDepth 4) $
-      Tasty.testGroup "outgoing/incoming edges" $
-        QS.testProperty "the same after random inserts/removals" incomingShouldBeOutgoing
+      Tasty.testGroup "outgoing/incoming edges"
+      [ QS.testProperty "the same after random inserts/removals" incomingShouldBeOutgoing
+      ]
     ]
 
 addRemoveEdges

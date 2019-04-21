@@ -12,8 +12,9 @@ testProperty
     :: (QC.Testable a, SC.Testable IO a)
     => Tasty.TestName
     -> a
-    -> [Tasty.TestTree]
+    -> Tasty.TestTree
 testProperty name prop =
-    [ SC.testProperty (name ++ " (SmallCheck)") prop
-    , QC.testProperty (name ++ " (QuickCheck)") prop
-    ]
+    Tasty.testGroup name
+        [ SC.testProperty ("SmallCheck") prop
+        , QC.testProperty ("QuickCheck") prop
+        ]
