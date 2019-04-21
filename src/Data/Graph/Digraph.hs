@@ -11,7 +11,6 @@ module Data.Graph.Digraph
 , lookupVertex
 , insertEdge
 , removeEdge
-, mapEdges
   -- * Queries
 , vertexCount
 , edgeCount
@@ -218,18 +217,3 @@ valueSet
     -> m [v]
 valueSet =
     HM.foldM (\accum _ v -> return $ v : accum) []
-
--- | Copy a graph, modifying its edges as specified.
--- NB: will only contain the vertices specified by the new edges.
-mapEdges
-    :: (PrimMonad m, DirectedEdge e' v)
-    => (e -> m e')
-    -> Digraph (PrimState m) g e v
-    -> m (Digraph (PrimState m) () e' v)
-mapEdges f graph = do
-    vertexList <- vertices graph
-    newGraph <- new
-    forM_ vertexList $ \vertex -> do
-        outEdges <- outgoingEdges graph vertex
-        forM_ outEdges (f >=> insertEdge newGraph)
-    return newGraph
