@@ -8,7 +8,7 @@ module Types.Cycle
 where
 
 import           Types.Edge
-import           Util.GenData                         (GenData(..))
+import           Util.GenData                         (GenData(..), SuchThat(..))
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty                   as NE

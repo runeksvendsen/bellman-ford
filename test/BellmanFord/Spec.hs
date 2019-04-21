@@ -7,6 +7,7 @@ module BellmanFord.Spec
 where
 
 import qualified Util.QuickSmall                    as QS
+import qualified Util
 import           Data.Graph.Prelude
 import           Types.Edge
 import           Types.Cycle
@@ -20,7 +21,6 @@ import           Test.Hspec.Expectations            ( Expectation
                                                     , expectationFailure
                                                     )
 import qualified Test.Tasty                         as Tasty
--- import qualified Test.Tasty.SmallCheck              as SC
 import qualified Data.List.NonEmpty                 as NE
 import qualified System.Random.Shuffle              as Shuffle
 import           Text.Printf                        (printf)
@@ -62,7 +62,6 @@ findsNegativeCycle
     -> Expectation
 findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     graph <- fromShuffledEdges (map positiveWeight positiveEdges)
-    -- graph <- Lib.fromEdges []
     mapM_ (Lib.insertEdge graph) =<< Shuffle.shuffleM (NE.toList cycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
@@ -78,10 +77,7 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
                     ]
             in expectationFailure $ printf errFormatStr (show cycleEdges) (show positiveEdges)
         Just returnedCycle ->
-            returnedCycle `shouldSatisfy` \cycle' ->
-                cycle' == cycleEdges || cycle' == NE.reverse cycleEdges
-                -- The returned cycle may be in the opposite direction
-                --  of the input cycle
+            NE.toList returnedCycle `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges)
   where
     weightCombFun weight edge = weight + Lib.weight edge
 
