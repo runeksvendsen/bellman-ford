@@ -30,6 +30,7 @@ library:
   - hashable
   - mtl
   - transformers
+  - deepseq
   exposed-modules:
   - Data.Graph.BellmanFord
   - Data.Graph.Cycle
