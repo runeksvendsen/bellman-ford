@@ -1,4 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 module Data.Graph.BellmanFord
 ( -- * Monad
   runBF
@@ -22,6 +28,7 @@ import qualified Data.Graph.Util                    as U
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import qualified Data.Graph.Cycle                   as C
+import           Control.Monad.Primitive            (PrimMonad(..), PrimState)
 import           Control.Monad.ST                   (ST)
 import           Data.Array.ST                      (STArray, STUArray)
 import qualified Data.Queue                         as Q
@@ -33,11 +40,50 @@ import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 
 
-type BF s g e v = R.ReaderT (State s g e v) (ST s)
+type BFUpdateAll s g e v     = BFUpdate s g e v 'RelaxAll
+type BFUpdateChanged s g e v = BFUpdate s g e v 'RelaxChanged
+type BF s g e v = BFUpdateAll s g e v
+
+newtype BFUpdate s g e v (mode :: UpdateMode) a =
+    BFUpdate { getBF :: R.ReaderT (State s g e v) (ST s) a }
+        deriving ( Functor
+                 , Applicative
+                 , Monad
+                 , R.MonadReader (State s g e v)
+                 )
+
+instance PrimMonad (BFUpdate s g e v mode) where
+  type PrimState (BFUpdate s g e v mode) = s
+  primitive = BFUpdate . primitive
+  {-# INLINE primitive #-}
+
+liftST
+    :: ST s a
+    -> BFUpdate s g e v mode a
+liftST = BFUpdate . R.lift
+
+-- | How are relaxed vertices updated when one or more graph edges
+--    are replaced/removed?
+data UpdateMode
+    = RelaxAll
+    | RelaxChanged
+
+class RelaxUpdate m where
+    relaxUpdate :: [Vertex g] -> m ()
+
+instance RelaxUpdate (BFUpdate s g e v 'RelaxAll) where
+    relaxUpdate _ = do
+        state <- R.asks sMState
+        liftST $ resetState state
+
+instance RelaxUpdate (BFUpdate s g e v 'RelaxChanged) where
+    relaxUpdate vertices = do
+        undefined
 
 -- |
 runBF
-    :: DG.Digraph s g e v
+    :: (Eq v, Hashable v)
+    => DG.Digraph s g e v
     -> (Double -> e -> Double)
     -- | Weight combination function "f".
     --   "f a b" calculates a new distance to a "to" vertex.
@@ -47,21 +93,42 @@ runBF
     --    be updated.
     --  E.g. for Dijkstra with type parameter "e" equal to "Double",
     --   this function would simply be "(+)".
-    -> BF s g e v a
+    -> v    -- ^ Source vertex
+    -> BFUpdate s g e v mode a
     -> ST s a
-runBF graph weightCombine bf = do
+runBF graph weightCombine src bf = do
     mutState <- initState graph
-    let state = State graph weightCombine mutState
-    R.runReaderT bf state
+    srcVertex <- U.lookupVertex graph src
+    let state = State graph weightCombine mutState srcVertex
+    R.runReaderT (getBF bf) state
 
 getGraph
-    :: BF s g e v (DG.Digraph s g e v)
+    :: BFUpdate s g e v mode (DG.Digraph s g e v)
 getGraph = R.asks sGraph
+
+-- | Insert/overwrite edges
+insertEdges
+    :: ( E.DirectedEdge e v
+       , RelaxUpdate m
+       )
+    => [e]  -- ^ Edges to insert
+    -> m ()
+insertEdges = undefined
+
+-- | Remove edges
+removeEdges
+    :: (E.DirectedEdge e v
+       , RelaxUpdate m
+       )
+    => [e]  -- ^ Edges to remove
+    -> m ()
+removeEdges = undefined
 
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
     , sWeightCombine    :: (Double -> e -> Double)
     , sMState           :: MState s g e
+    , sSrc              :: Vertex g
     }
 
 -- |
@@ -83,8 +150,8 @@ data MState s g e = MState
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
     :: MState s g e
-    -> BF s g e v ()
-resetState mutState = R.lift $ do
+    -> ST s ()
+resetState mutState = do
     fillArray (distTo mutState) (1/0)
     fillArray (edgeTo mutState) Nothing
     fillArray (onQueue mutState) False
@@ -110,20 +177,18 @@ resetState mutState = R.lift $ do
 -- |
 bellmanFord
     :: (E.WeightedEdge e v Double, Eq e, Show e)
-    => v    -- ^ Source vertex
-    -> BF s g e v ()
-bellmanFord src = do
-    graph <- R.asks sGraph
+    => BFUpdate s g e v mode ()
+bellmanFord = do
     state <- R.asks sMState
-    resetState state    -- HACK: make things work for now before algorithm is improved
-    srcVertex <- U.lookupVertex graph src
-    R.lift $ Arr.writeArray (distTo state) srcVertex 0.0
-    R.lift $ enqueueVertex state srcVertex
+    liftST $ resetState state    -- HACK: make things work for now before algorithm is improved
+    srcVertex <- R.asks sSrc
+    liftST $ Arr.writeArray (distTo state) srcVertex 0.0
+    liftST $ enqueueVertex state srcVertex
     go state
     (`assert` ()) <$> check srcVertex
   where
     go state = do
-        vertexM <- R.lift $ dequeueVertex state
+        vertexM <- liftST $ dequeueVertex state
         case vertexM of
             Nothing     -> return ()
             Just vertex -> do
@@ -135,15 +200,15 @@ bellmanFord src = do
 pathTo
     :: (E.DirectedEdge e v)
     => v                        -- ^ Target vertex
-    -> BF s g e v (Maybe [e])
+    -> BFUpdate s g e v mode (Maybe [e])
 pathTo target = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     whenM hasNegativeCycle $
         error "Negative cost cycle exists"
     targetVertex <- U.lookupVertex graph target
-    pathExists <- R.lift $ hasPathTo state targetVertex
-    R.lift $ if pathExists
+    pathExists <- liftST $ hasPathTo state targetVertex
+    liftST $ if pathExists
         then Just <$> go graph state [] targetVertex
         else return Nothing
   where
@@ -166,13 +231,13 @@ hasPathTo state target =
 relax
     :: (E.WeightedEdge e v Double, Show e)
     => Vertex g
-    -> BF s g e v ()
+    -> BFUpdate s g e v mode ()
 relax vertex = do
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
     edgeList   <- DG.outgoingEdges graph vertex
-    distToFrom <- R.lift $ Arr.readArray (distTo state) vertex
+    distToFrom <- liftST $ Arr.readArray (distTo state) vertex
     vertexCount <- DG.vertexCount graph
     mapM_ (handleEdge graph state calcWeight vertexCount distToFrom) edgeList
   where
@@ -180,10 +245,10 @@ relax vertex = do
         unlessM hasNegativeCycle $ do
             to <- U.lookupVertex graph (E.toNode edge)
             -- Look up current distance to "to" vertex
-            distToTo <- R.lift $ Arr.readArray (distTo state) to
+            distToTo <- liftST $ Arr.readArray (distTo state) to
             -- Actual relaxation
             let newToWeight = calcWeight distToFrom edge
-            when (distToTo > newToWeight) $ R.lift $ do
+            when (distToTo > newToWeight) $ liftST $ do
                 Arr.writeArray (distTo state) to newToWeight
                 Arr.writeArray (edgeTo state) to (Just edge)
                 unlessM (Arr.readArray (onQueue state) to) $
@@ -196,22 +261,22 @@ relax vertex = do
 
 findNegativeCycle
     :: (E.DirectedEdge e v, Show e)
-    => BF s g e v ()
+    => BFUpdate s g e v mode ()
 findNegativeCycle = do
     state    <- R.asks sMState
-    spEdges  <- R.lift $ Arr.getElems (edgeTo state)
+    spEdges  <- liftST $ Arr.getElems (edgeTo state)
     sptGraph <- DG.fromEdges (catMaybes spEdges)
-    R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
+    liftST $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
 
 hasNegativeCycle
-    :: BF s g e v Bool
+    :: BFUpdate s g e v mode Bool
 hasNegativeCycle = do
     state <- R.asks sMState
     fmap (not . null) . MV.readMutVar . cycle $ state
 
 -- | Get negative cycle ('Nothing' in case there's no negative cycle)
 negativeCycle
-    :: BF s g e v (Maybe (NE.NonEmpty e))
+    :: BFUpdate s g e v mode (Maybe (NE.NonEmpty e))
 negativeCycle = do
     state    <- R.asks sMState
     edgeList <- MV.readMutVar $ cycle state
@@ -261,7 +326,7 @@ dequeueVertex state = do
 check
     :: (E.WeightedEdge e v Double, Eq e, Show e)
     => Vertex g
-    -> BF s g e v Bool
+    -> BFUpdate s g e v mode Bool
 check source = do
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
@@ -277,7 +342,7 @@ check source = do
         let weight = sum $ map E.weight negativeCycle'
         when (weight >= 0.0) $
             error $ "negative cycle is non-negative: " ++ show weight
-    checkNoCycle state graph calcWeight = R.lift $ do
+    checkNoCycle state graph calcWeight = liftST $ do
         -- check that distTo[v] and edgeTo[v] are consistent
         whenM ((/= 0.0) <$> Arr.readArray (distTo state) source) $
             error "distTo source /= 0"
