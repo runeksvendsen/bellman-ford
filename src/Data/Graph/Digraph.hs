@@ -12,6 +12,7 @@ module Data.Graph.Digraph
 , lookupVertex
 , insertEdge
 , removeEdge
+, removeIncidentEdges
   -- * Queries
 , vertexCount
 , edgeCount
@@ -158,6 +159,20 @@ removeEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
             Nothing            -> return ()
             Just vertexEdgeMap ->
                 HM.delete vertexEdgeMap edgeKey
+
+removeIncidentEdges
+    :: (PrimMonad m, Eq v, Hashable v)
+    => Digraph (PrimState m) g e v
+    -> v
+    -> m ()
+removeIncidentEdges graph@(Digraph _ outEdgeMap inEdgeMap) vertexLabel = do
+    vertex <- insertVertex graph vertexLabel
+    removeEdges outEdgeMap vertex
+    removeEdges inEdgeMap vertex
+  where
+    removeEdges hmap v = do
+        emptyMap <- HM.new
+        HM.insert hmap v emptyMap
 
 -- | Count of the number of vertices in the graph
 vertexCount
