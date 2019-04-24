@@ -19,6 +19,7 @@ module Data.Graph.Digraph
 , vertexLabels
 , outgoingEdges
 , incomingEdges
+, degree
   -- * Re-exports
 , DirectedEdge(..)
 )
@@ -212,6 +213,18 @@ incomingEdges
 incomingEdges (Digraph _ _ inEdgeMap) vertex = do
     edgeMapM <- HM.lookup inEdgeMap vertex
     maybe (return []) valueSet edgeMapM
+
+-- | Vertex degree (sum of number of outgoing+incoming edges)
+degree
+    :: (PrimMonad m, Eq v, Hashable v)
+    => Digraph (PrimState m) g e v
+    -> v
+    -> m Word
+degree graph vertexLabel = do
+    vertex <- insertVertex graph vertexLabel
+    outDegree <- length <$> outgoingEdges graph vertex
+    inDegree  <- length <$> incomingEdges graph vertex
+    return . fromIntegral $ outDegree + inDegree
 
 -- | Set of map keys
 keySet
