@@ -51,7 +51,7 @@ addRemoveEdges edges = do
         length outEdges `shouldBe` 0
 
 addEdgesCheckInOutgoing
-    :: (Lib.Digraph RealWorld () TestEdge String -> Lib.Vertex () -> IO [TestEdge])
+    :: (Lib.Digraph RealWorld () TestEdge String -> Lib.Vertex () -> IO [Lib.IndexedEdge g TestEdge])
     -> [TestEdge]
     -> Expectation
 addEdgesCheckInOutgoing inOutEdges edges = do
@@ -64,7 +64,7 @@ addEdgesCheckInOutgoing inOutEdges edges = do
     sort (concat outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
   where
     collectInOutgoing graph accum vertex = do
-        outEdges <- inOutEdges graph vertex
+        outEdges <- map Lib.ieEdge <$> inOutEdges graph vertex
         return $ outEdges : accum
     removeDuplicateSrcDst = nubBy sameSrcDst
     sameSrcDst edgeA edgeB =
@@ -81,7 +81,7 @@ incomingShouldBeOutgoing modifyGraphsUnweighted = do
         vertices <- Lib.vertices graph
         outEdges <- foldM (collectInOutgoing Lib.outgoingEdges graph) [] vertices
         inEdges <- foldM (collectInOutgoing Lib.incomingEdges graph) [] vertices
-        return (concat outEdges, concat inEdges)
+        return (map Lib.ieEdge $ concat outEdges, map Lib.ieEdge $ concat inEdges)
     sort outEdges `shouldBe` sort inEdges
   where
     collectInOutgoing inOutEdges graph accum vertex =

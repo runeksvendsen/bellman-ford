@@ -59,9 +59,10 @@ dfs graph state vertex = do
     DG.outgoingEdges graph vertex >>= mapM_ handleEdge
     Arr.writeArray (onStack state) vertex False
   where
-    handleEdge edge =
+    handleEdge indexedEdge =
         unlessM (hasCycle state) $ do
-            w <- U.lookupVertex graph (E.toNode edge)
+            let w = DG.ieToNode indexedEdge
+                edge = DG.ieEdge indexedEdge
             wMarked <- Arr.readArray (marked state) w
             if not wMarked
                 then do

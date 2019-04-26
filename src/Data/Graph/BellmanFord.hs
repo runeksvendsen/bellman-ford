@@ -174,11 +174,12 @@ relax vertex = do
     edgeList   <- DG.outgoingEdges graph vertex
     distToFrom <- R.lift $ Arr.readArray (distTo state) vertex
     vertexCount <- DG.vertexCount graph
-    mapM_ (handleEdge graph state calcWeight vertexCount distToFrom) edgeList
+    mapM_ (handleEdge state calcWeight vertexCount distToFrom) edgeList
   where
-    handleEdge graph state calcWeight vertexCount distToFrom edge =
+    handleEdge state calcWeight vertexCount distToFrom indexedEdge =
         unlessM hasNegativeCycle $ do
-            to <- U.lookupVertex graph (E.toNode edge)
+            let edge = DG.ieEdge indexedEdge
+                to = DG.ieToNode indexedEdge
             -- Look up current distance to "to" vertex
             distToTo <- R.lift $ Arr.readArray (distTo state) to
             -- Actual relaxation
@@ -294,8 +295,9 @@ check source = do
         -- check that all edges e = v->w satisfy distTo[w] <= distTo[v] + e.weight()
         forM_ vertices $ \v -> do
             adj <- DG.outgoingEdges graph v
-            (flip mapM_) adj $ \e -> do
-                w <- U.lookupVertex graph (E.toNode e)
+            (flip mapM_) adj $ \indexedEdge -> do
+                let e = DG.ieEdge indexedEdge
+                    w = DG.ieToNode indexedEdge
                 distToV <- Arr.readArray (distTo state) v
                 distToW <- Arr.readArray (distTo state) w
                 when (calcWeight distToV e < distToW) $

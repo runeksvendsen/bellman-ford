@@ -21,6 +21,11 @@ module Data.Graph.Digraph
 , outgoingEdges
 , incomingEdges
 , degree
+  -- * IndexedEdge
+, IndexedEdge
+, ieEdge
+, ieFromNode
+, ieToNode
   -- * Re-exports
 , DirectedEdge(..)
 )
@@ -66,6 +71,25 @@ instance (NFData e, NFData v) => NFData (Digraph RealWorld g e v) where
 
 instance Show (Digraph s g e v) where
     show = const "Digraph"
+
+-- | An edge along with indices for its "from"
+--    and "to" vertices.
+--   Used to avoid lookup in a HashMap in order
+--    to improve performance.
+data IndexedEdge g e = IndexedEdge
+    { ieEdge'       :: e
+    , ieFromNode'   :: Vertex g
+    , ieToNode'     :: Vertex g
+    }
+
+ieEdge :: IndexedEdge g e -> e
+ieEdge = ieEdge'
+
+ieFromNode :: IndexedEdge g e -> Vertex g
+ieFromNode = ieFromNode'
+
+ieToNode :: IndexedEdge g e -> Vertex g
+ieToNode = ieToNode'
 
 new
     :: (PrimMonad m)
@@ -214,20 +238,27 @@ outgoingEdges
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> Vertex g                     -- ^ Vertex
-    -> m [e]
+    -> m [IndexedEdge g e]
 outgoingEdges (Digraph _ outEdgeMap _) vertex = do
     edgeMapM <- HM.lookup outEdgeMap vertex
-    maybe (return []) valueSet edgeMapM
+    maybe (return []) (keyValueSet mkIndexedEdge) edgeMapM
 
 -- | All edges into the given vertex
 incomingEdges
     :: (PrimMonad m)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> Vertex g                     -- ^ Vertex
-    -> m [e]
+    -> m [IndexedEdge g e]
 incomingEdges (Digraph _ _ inEdgeMap) vertex = do
     edgeMapM <- HM.lookup inEdgeMap vertex
-    maybe (return []) valueSet edgeMapM
+    maybe (return []) (keyValueSet mkIndexedEdge) edgeMapM
+
+mkIndexedEdge
+    :: IntPair
+    -> e
+    -> IndexedEdge g e
+mkIndexedEdge (IntPair from to) e =
+    IndexedEdge e (Vertex from) (Vertex to)
 
 -- | Vertex degree (sum of number of outgoing+incoming edges)
 degree
@@ -249,10 +280,11 @@ keySet
 keySet =
     HM.foldM (\accum k _ -> return $ k : accum) []
 
--- | Set of map values
-valueSet
+-- | Set of map keys+values
+keyValueSet
     :: (PrimMonad m)
-    => HM.MHashMap (PrimState m) k v
-    -> m [v]
-valueSet =
-    HM.foldM (\accum _ v -> return $ v : accum) []
+    => (k -> v -> a)    -- ^ Function that combines a key and value
+    -> HM.MHashMap (PrimState m) k v
+    -> m [a]
+keyValueSet f =
+    HM.foldM (\accum k v -> return $ f k v : accum) []
