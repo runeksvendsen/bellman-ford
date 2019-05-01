@@ -5,12 +5,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.BellmanFord
 ( -- * Monad
   runBF
+, runBFOptimized
 , BF
-  -- * Algorithm
-, bellmanFord
   -- * Queries
 , pathTo
 , negativeCycle
@@ -69,20 +69,26 @@ data UpdateMode
     | RelaxChanged
 
 class RelaxUpdate m where
-    relaxUpdate :: [Vertex g] -> m ()
+    relaxUpdate :: m ()
 
 instance RelaxUpdate (BFUpdate s g e v 'RelaxAll) where
-    relaxUpdate _ = do
+    relaxUpdate = do
         state <- R.asks sMState
-        liftST $ resetState state
+        vertices <- liftST $ range <$> Arr.getBounds (distTo state)
+        liftST $ resetMState state vertices
 
 instance RelaxUpdate (BFUpdate s g e v 'RelaxChanged) where
-    relaxUpdate vertices = do
-        undefined
+    relaxUpdate = do
+        state <- R.asks sMState
+        dirtyVertices <- MV.readMutVar (dirty state)
+        liftST $ resetMState state dirtyVertices
 
 -- |
 runBF
-    :: (Eq v, Hashable v)
+    :: ( E.WeightedEdge e v Double
+       , Eq e
+       , Show e
+       )
     => DG.Digraph s g e v
     -> (Double -> e -> Double)
     -- | Weight combination function "f".
@@ -94,35 +100,62 @@ runBF
     --  E.g. for Dijkstra with type parameter "e" equal to "Double",
     --   this function would simply be "(+)".
     -> v    -- ^ Source vertex
+    -> BFUpdate s g e v 'RelaxAll a
+    -> ST s a
+runBF = runBFMulti
+
+-- |
+runBFOptimized
+    :: ( E.WeightedEdge e v Double
+       , Eq e
+       , Show e
+       )
+    => DG.Digraph s g e v
+    -> (Double -> e -> Double)
+    -> v
+    -> BFUpdate s g e v 'RelaxChanged a
+    -> ST s a
+runBFOptimized = runBFMulti
+
+-- |
+runBFMulti
+    :: ( RelaxUpdate (BFUpdate s g e v mode)
+       , E.WeightedEdge e v Double
+       , Eq e
+       , Show e
+       )
+    => DG.Digraph s g e v
+    -> (Double -> e -> Double)
+    -> v
     -> BFUpdate s g e v mode a
     -> ST s a
-runBF graph weightCombine src bf = do
-    mutState <- initState graph
+runBFMulti graph weightCombine src bf = do
+    -- Initialize mutable state
+    mutState <- createMState graph
+    -- resetMState mutState allVertices
     srcVertex <- U.lookupVertex graph src
     let state = State graph weightCombine mutState srcVertex
-    R.runReaderT (getBF bf) state
+    R.runReaderT (getBF $ bellmanFord >> bf) state
 
 getGraph
     :: BFUpdate s g e v mode (DG.Digraph s g e v)
 getGraph = R.asks sGraph
 
--- | Insert/overwrite edges
-insertEdges
-    :: ( E.DirectedEdge e v
-       , RelaxUpdate m
-       )
-    => [e]  -- ^ Edges to insert
-    -> m ()
-insertEdges = undefined
-
 -- | Remove edges
 removeEdges
-    :: (E.DirectedEdge e v
-       , RelaxUpdate m
+    :: ( E.DirectedEdge e v
        )
     => [e]  -- ^ Edges to remove
-    -> m ()
-removeEdges = undefined
+    -> BFUpdate s g e v mode ()
+removeEdges edges = do
+    graph <- R.asks sGraph
+    vertices <- foldM (removeEdge graph) [] edges
+    mutState <- R.asks sMState
+    MV.modifyMutVar' (dirty mutState) (++ vertices)
+  where
+    removeEdge graph vertexList edge = do
+        (from, to) <- DG.removeEdge graph edge
+        return $ from : to : vertexList
 
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
@@ -145,42 +178,41 @@ data MState s g e = MState
     , cost      :: MV.MutVar s Word
       -- | negative cycle (empty list if no such cycle)
     , cycle     :: MV.MutVar s [e]
+      -- | vertices whose state is not valid until "bellmanFord" has been run again
+    , dirty     :: MV.MutVar s [Vertex g]
     }
 
--- | Reset state in 'MState' so that it's the same as returned by 'initState'
-resetState
-    :: MState s g e
+-- | Reset state in 'MState' for the given vertices
+resetMState
+    :: forall s g e.
+       MState s g e
+    -> [Vertex g]
     -> ST s ()
-resetState mutState = do
+resetMState mutState indices = do
     fillArray (distTo mutState) (1/0)
     fillArray (edgeTo mutState) Nothing
     fillArray (onQueue mutState) False
-    emptyQueue (queue mutState)
-    MV.atomicModifyMutVar' (cost mutState) (const (0, ()))
     MV.atomicModifyMutVar' (cycle mutState) (const ([], ()))
   where
-    emptyQueue
-        :: Q.MQueue s (Vertex g)
-        -> ST s ()
-    emptyQueue queue' = do
-        let go = maybe (return ()) (\_ -> Q.dequeue queue' >>= go)
-        Q.dequeue queue' >>= go
     fillArray
-        :: Arr.MArray a e (ST s)
-        => a (Vertex g) e
-        -> e
+        :: Arr.MArray a elem (ST s)
+        => a (Vertex g) elem
+        -> elem
         -> (ST s) ()
-    fillArray arr value = do
-        indices <- range <$> Arr.getBounds arr
+    fillArray arr value =
         forM_ indices (\idx -> Arr.writeArray arr idx value)
 
 -- |
 bellmanFord
-    :: (E.WeightedEdge e v Double, Eq e, Show e)
+    :: ( RelaxUpdate (BFUpdate s g e v mode)
+       , E.WeightedEdge e v Double
+       , Eq e
+       , Show e
+       )
     => BFUpdate s g e v mode ()
 bellmanFord = do
+    relaxUpdate
     state <- R.asks sMState
-    liftST $ resetState state    -- HACK: make things work for now before algorithm is improved
     srcVertex <- R.asks sSrc
     liftST $ Arr.writeArray (distTo state) srcVertex 0.0
     liftST $ enqueueVertex state srcVertex
@@ -285,18 +317,21 @@ negativeCycle = do
         edges -> return $ Just $ NE.fromList edges
 
 -- | Create initial 'MState'
-initState
+createMState
     :: DG.Digraph s g e v   -- ^ Graph
-    -> ST s (MState s g e)   -- ^ Initialized state
-initState graph = do
+    -> ST s (MState s g e)  -- ^ Initial state
+createMState graph = do
     vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
+    let arrayRange = (Vertex 0, vertexCount)
+    let allVertices = range arrayRange
     MState
-        <$> Arr.newArray (Vertex 0, vertexCount) (1/0)      -- distTo
-        <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (Vertex 0, vertexCount) False      -- onQueue
-        <*> Q.new                                           -- queue
-        <*> MV.newMutVar 0                                  -- cost
-        <*> MV.newMutVar []                                 -- cycle
+        <$> Arr.newArray_ arrayRange    -- distTo
+        <*> Arr.newArray_ arrayRange    -- edgeTo
+        <*> Arr.newArray_ arrayRange    -- onQueue
+        <*> Q.new                       -- queue
+        <*> MV.newMutVar 0              -- cost
+        <*> MV.newMutVar []             -- cycle
+        <*> MV.newMutVar allVertices    -- dirty
 
 -- | Add vertex to queue (helper function)
 enqueueVertex

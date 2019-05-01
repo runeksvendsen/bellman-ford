@@ -51,8 +51,7 @@ bellmanFord combine edges = do
     graph <- fromShuffledEdges edges
     vertices <- Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source ->
-        Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) source $
-            Lib.bellmanFord
+        Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) source (return ())
 
 -- | When edges comprising a negative cycle are added to the graph,
 --    along with an arbitrary number of positive-weight edges,
@@ -68,8 +67,7 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
     let srcVertex = head shuffledVertices
-    negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun srcVertex $ do
-        Lib.bellmanFord
+    negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun srcVertex $
         Lib.negativeCycle
     case negativeCycleM of
         Nothing ->

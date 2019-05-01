@@ -107,15 +107,16 @@ lookupVertex (Digraph g _ _) =
 -- | Insert/overwrite edge
 insertEdge
     :: (PrimMonad m, DirectedEdge e v)
-    => Digraph (PrimState m) g e v
-    -> e
-    -> m ()
+    => Digraph (PrimState m) g e v  -- ^ Graph
+    -> e                            -- ^ Edge to insert/overwrite
+    -> m (Vertex g, Vertex g)       -- ^ (from, to)-vertex
 insertEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
     fromVertex <- insertVertex graph (fromNode edge)
     toVertex   <- insertVertex graph (toNode edge)
     let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
     edgeMapInsert outEdgeMap fromVertex intPair
     edgeMapInsert inEdgeMap toVertex intPair
+    return (fromVertex, toVertex)
   where
     edgeMapInsert edgeMap vertex edgeKey = do
         vertexEdgeMapM <- HM.lookup edgeMap vertex
@@ -132,13 +133,14 @@ removeEdge
     :: (PrimMonad m, DirectedEdge e v)
     => Digraph (PrimState m) g e v  -- ^ Graph
     -> e                            -- ^ Edge to remove
-    -> m ()
+    -> m (Vertex g, Vertex g)       -- ^ (from, to)-vertex
 removeEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
     fromVertex <- insertVertex graph (fromNode edge)
     toVertex   <- insertVertex graph (toNode edge)
     let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
     edgeMapRemove outEdgeMap fromVertex intPair
     edgeMapRemove inEdgeMap toVertex intPair
+    return (fromVertex, toVertex)
   where
     edgeMapRemove edgeMap vertex edgeKey = do
         edgeMapM <- HM.lookup edgeMap vertex

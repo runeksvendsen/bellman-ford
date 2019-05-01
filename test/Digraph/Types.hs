@@ -14,6 +14,7 @@ import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 import qualified Util.GenData                         as GD
 import           GHC.Generics                         (Generic)
+import           Control.Monad                        (void)
 import           Control.Monad.Primitive              (PrimMonad, PrimState)
 import qualified System.Random.Shuffle                as Shuffle
 import qualified Control.Monad.Random.Class           as Random
@@ -40,5 +41,5 @@ modify
     => Lib.Digraph (PrimState m) g e v
     -> ModifyGraph e
     -> m ()
-modify g (InsertEdge e) = Lib.insertEdge g e
-modify g (RemoveEdge e) = Lib.removeEdge g e
+modify g (InsertEdge e) = void $ Lib.insertEdge g e
+modify g (RemoveEdge e) = void $ Lib.removeEdge g e
