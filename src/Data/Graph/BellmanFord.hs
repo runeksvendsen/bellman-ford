@@ -109,7 +109,7 @@ resetState mutState = R.lift $ do
 
 -- |
 bellmanFord
-    :: (E.WeightedEdge e v Double, Eq e, Show e)
+    :: (E.WeightedEdge e v Double, Eq e, Show e, Show v)
     => v    -- ^ Source vertex
     -> BF s g e v ()
 bellmanFord src = do
@@ -133,7 +133,7 @@ bellmanFord src = do
 
 -- |
 pathTo
-    :: (E.DirectedEdge e v)
+    :: (E.DirectedEdge e v, Show v)
     => v                        -- ^ Target vertex
     -> BF s g e v (Maybe [e])
 pathTo target = do
@@ -164,7 +164,7 @@ hasPathTo state target =
 
 -- |
 relax
-    :: (E.WeightedEdge e v Double, Show e)
+    :: (E.WeightedEdge e v Double, Show e, Show v)
     => Vertex g
     -> BF s g e v ()
 relax vertex = do
@@ -195,7 +195,7 @@ relax vertex = do
                 findNegativeCycle
 
 findNegativeCycle
-    :: (E.DirectedEdge e v, Show e)
+    :: (E.DirectedEdge e v, Show e, Show v)
     => BF s g e v ()
 findNegativeCycle = do
     state    <- R.asks sMState
@@ -259,7 +259,7 @@ dequeueVertex state = do
 -- (ii)  for all edges e = v->w:            distTo[w] <= distTo[v] + e.weight()
 -- (ii') for all edges e = v->w on the SPT: distTo[w] == distTo[v] + e.weight()
 check
-    :: (E.WeightedEdge e v Double, Eq e, Show e)
+    :: (E.WeightedEdge e v Double, Eq e, Show e, Show v)
     => Vertex g
     -> BF s g e v Bool
 check source = do

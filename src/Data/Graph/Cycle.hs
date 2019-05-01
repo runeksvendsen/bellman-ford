@@ -36,7 +36,7 @@ data State s g e = State
 
 -- | Return cycle (empty list if no cycle exists)
 findCycle
-    :: (E.DirectedEdge e v, Show e)
+    :: (E.DirectedEdge e v, Show e, Show v)
     => DG.Digraph s g e v
     -> ST s [e]
 findCycle graph = do
@@ -47,7 +47,7 @@ findCycle graph = do
     (`assert` ()) <$> check state
     MV.readMutVar (cycle state)
 
-dfs :: (E.DirectedEdge e v)
+dfs :: (E.DirectedEdge e v, Show v)
     => DG.Digraph s g e v   -- ^ Graph
     -> State s g e          -- ^ State
     -> Vertex g             -- ^ Start vertex
@@ -79,7 +79,7 @@ dfs graph state vertex = do
 --    equals the given vertex.
 traceBackCycle
     :: forall s g e v.
-       (Hashable v, E.DirectedEdge e v)
+       (Hashable v, E.DirectedEdge e v, Show v)
     => DG.Digraph s g e v   -- ^ Graph
     -> State s g e          -- ^ State
     -> Vertex g             -- ^ Vertex where cycle ends (and starts)

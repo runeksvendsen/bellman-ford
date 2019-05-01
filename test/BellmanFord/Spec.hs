@@ -43,7 +43,7 @@ spec = Tasty.testGroup "BellmanFord"
     ]
 
 bellmanFord
-    :: (Lib.WeightedEdge e v Double, Eq e, Show e)
+    :: (Lib.WeightedEdge e v Double, Eq e, Show e, Show v)
     => (Double -> Double -> Double)
     -> [e]
     -> Expectation
