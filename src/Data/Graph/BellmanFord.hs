@@ -17,6 +17,8 @@ module Data.Graph.BellmanFord
   -- * Types
 , E.DirectedEdge(..)
 , E.WeightedEdge(..)
+  -- * Classes
+, RelaxUpdate(..)
   -- * Extras
 , getGraph
 )
@@ -68,20 +70,49 @@ data UpdateMode
     = RelaxAll
     | RelaxChanged
 
-class RelaxUpdate m where
-    relaxUpdate :: m ()
+class E.DirectedEdge e v => RelaxUpdate m e v where
+    updateEdge :: e -> m ()
+    removeEdge :: e -> m ()
 
-instance RelaxUpdate (BFUpdate s g e v 'RelaxAll) where
-    relaxUpdate = do
+instance (E.WeightedEdge e v Double, Show e) => RelaxUpdate (BFUpdate s g e v 'RelaxAll) e v where
+    updateEdge edge = error "STUB"
+    removeEdge edge = do
         state <- R.asks sMState
         vertices <- liftST $ range <$> Arr.getBounds (distTo state)
         liftST $ resetMState state vertices
 
-instance RelaxUpdate (BFUpdate s g e v 'RelaxChanged) where
-    relaxUpdate = do
+instance (E.WeightedEdge e v Double, Show e) => RelaxUpdate (BFUpdate s g e v 'RelaxChanged) e v where
+    updateEdge edge = do
+        -- Update edge in graph
+        graph <- R.asks sGraph
+        (from, to) <- DG.insertEdge graph edge
         state <- R.asks sMState
-        dirtyVertices <- MV.readMutVar (dirty state)
-        liftST $ resetMState state dirtyVertices
+        -- BEGIN assertion
+        existingEdge <- fromMaybe (error $ "Missing 'edgeTo' edge for: " ++ show edge) <$>
+                            liftST (Arr.readArray (edgeTo state) to)
+        assert (  E.fromNode existingEdge == E.fromNode edge
+               && E.toNode existingEdge == E.toNode edge
+               ) (return ())
+        -- END assertion
+        when (E.weight existingEdge == E.weight edge) $
+            liftST $ Arr.writeArray (edgeTo state) to (Just edge)
+        -- TODO: how to handle a change in a cycle?
+        MV.writeMutVar (cycle state) []
+        -- Relax "from" vertex
+        unless (E.weight existingEdge == E.weight edge) $
+            relax from
+
+    removeEdge edge = do
+        -- Remove edge from graph
+        graph <- R.asks sGraph
+        (from, to) <- DG.removeEdge graph edge
+        -- Make "to" vertex unrelaxed
+        state <- R.asks sMState
+        liftST $ Arr.writeArray (distTo state) to (1/0)
+        liftST $ Arr.writeArray (edgeTo state) to Nothing
+        MV.writeMutVar (cycle state) []
+        -- Relax "from" vertex
+        relax from
 
 -- |
 runBF
@@ -119,7 +150,7 @@ runBFOptimized = runBFMulti
 
 -- |
 runBFMulti
-    :: ( RelaxUpdate (BFUpdate s g e v mode)
+    :: ( RelaxUpdate (BFUpdate s g e v mode) e v
        , E.WeightedEdge e v Double
        , Eq e
        , Show e
@@ -141,22 +172,6 @@ getGraph
     :: BFUpdate s g e v mode (DG.Digraph s g e v)
 getGraph = R.asks sGraph
 
--- | Remove edges
-removeEdges
-    :: ( E.DirectedEdge e v
-       )
-    => [e]  -- ^ Edges to remove
-    -> BFUpdate s g e v mode ()
-removeEdges edges = do
-    graph <- R.asks sGraph
-    vertices <- foldM (removeEdge graph) [] edges
-    mutState <- R.asks sMState
-    MV.modifyMutVar' (dirty mutState) (++ vertices)
-  where
-    removeEdge graph vertexList edge = do
-        (from, to) <- DG.removeEdge graph edge
-        return $ from : to : vertexList
-
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
     , sWeightCombine    :: (Double -> e -> Double)
@@ -171,7 +186,7 @@ data MState s g e = MState
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s (Vertex g) (Maybe e)
       -- | onQueue[v] = is v currently on the queue?
-    , onQueue   :: STUArray s (Vertex g) Bool
+    , onQueue   :: STUArray s (Vertex g) Bool   -- TODO: merge into "queue" implementation below
       -- | queue of vertices to relax
     , queue     :: Q.MQueue s (Vertex g)
       -- | number of calls to relax()
@@ -180,6 +195,7 @@ data MState s g e = MState
     , cycle     :: MV.MutVar s [e]
       -- | vertices whose state is not valid until "bellmanFord" has been run again
     , dirty     :: MV.MutVar s [Vertex g]
+    -- TODO: remove
     }
 
 -- | Reset state in 'MState' for the given vertices
@@ -204,14 +220,12 @@ resetMState mutState indices = do
 
 -- |
 bellmanFord
-    :: ( RelaxUpdate (BFUpdate s g e v mode)
-       , E.WeightedEdge e v Double
+    :: ( E.WeightedEdge e v Double
        , Eq e
        , Show e
        )
     => BFUpdate s g e v mode ()
 bellmanFord = do
-    relaxUpdate
     state <- R.asks sMState
     srcVertex <- R.asks sSrc
     liftST $ Arr.writeArray (distTo state) srcVertex 0.0
