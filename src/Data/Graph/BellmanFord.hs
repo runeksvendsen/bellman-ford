@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards #-}
 module Data.Graph.BellmanFord
 ( -- * Monad
   runBF
@@ -48,29 +49,37 @@ newtype MatchResult (src :: Symbol) a = MatchResult [NE.NonEmpty a]
 
 
 newAlgorithm
-    :: forall src s g e v. KnownSymbol src
-    => BF s g e v (Arbitrage src e, MatchResult src e)
+    :: forall src s g e v mode.
+       ( RelaxUpdate (BFUpdate s g e v mode) e v
+       , KnownSymbol src
+       , E.WeightedEdge e v Double
+       , Eq e
+       , Show e
+       )
+    => v
+    -> BFUpdate s g e v mode (Arbitrage src e, MatchResult src e)
 newAlgorithm targetVertex = do
     graph <- getGraph
     -- Arbitrages
-    let goArbitrages accum = do
-        bellmanFord (symbolVal (Proxy :: Proxy src))
-        negativeCycleM <- negativeCycle
-        case negativeCycleM of
-            Just edges -> do
-                forM_ edges (DG.removeEdge graph)
-
-                goArbitrages $ edges : accum
-            Nothing -> return $ Arbitrage accum
-    arbitrage <- goArbitrages []
+    let goArbitrages
+            :: [NE.NonEmpty e]
+            -> BFUpdate s g e v 'RelaxAll (Arbitrage src e)
+        goArbitrages accum = do
+                negativeCycleM <- negativeCycle
+                case negativeCycleM of
+                    Just edges -> do
+                        removeEdges (NE.toList edges)
+                        goArbitrages $ edges : accum
+                    Nothing -> return $ Arbitrage accum
+    arbitrage <- liftBF $ goArbitrages []
     -- MatchResult
     let goMatch accum = do
-        matchedOrdersM <- pathTo targetVertex
-        case matchedOrdersM of
-            Just edges -> do
-                forM_ edges (DG.removeEdge graph)
-                goMatch $ edges : accum
-            Nothing -> return $ MatchResult accum
+            matchedOrdersM <- pathTo targetVertex
+            case matchedOrdersM of
+                Just edges -> do
+                    removeEdges edges
+                    goMatch $ NE.fromList edges : accum
+                Nothing -> return $ MatchResult accum
     matchResult <- goMatch []
     return (arbitrage, matchResult)
 
@@ -98,6 +107,19 @@ liftST
     -> BFUpdate s g e v mode a
 liftST = BFUpdate . R.lift
 
+liftBF
+    :: (RelaxUpdate (BFUpdate s g e v mode1) e v
+        , E.WeightedEdge e v Double
+        , Eq e
+        , Show e
+    )
+    => BFUpdate s g e v mode1 a
+    -> BFUpdate s g e v mode2 a
+liftBF action = do
+    State{..} <- R.ask
+    liftST $ runBFMulti sGraph sWeightCombine (fst sSrc) action
+
+
 -- | How are relaxed vertices updated when one or more graph edges
 --    are replaced/removed?
 data UpdateMode
@@ -105,48 +127,54 @@ data UpdateMode
     | RelaxChanged
 
 class E.DirectedEdge e v => RelaxUpdate m e v where
-    updateEdge :: e -> m ()
-    removeEdge :: e -> m ()
+    -- updateEdges :: [e] -> m ()
+    removeEdges :: [e] -> m ()
 
 instance (E.WeightedEdge e v Double, Show e) => RelaxUpdate (BFUpdate s g e v 'RelaxAll) e v where
-    updateEdge edge = error "STUB"
-    removeEdge edge = do
+    removeEdges edges = do
+        -- Remove edges
+        graph <- R.asks sGraph
+        _ <- forM edges (DG.removeEdge graph)
         state <- R.asks sMState
         vertices <- liftST $ range <$> Arr.getBounds (distTo state)
         liftST $ resetMState state vertices
 
 instance (E.WeightedEdge e v Double, Show e) => RelaxUpdate (BFUpdate s g e v 'RelaxChanged) e v where
-    updateEdge edge = do
-        -- Update edge in graph
+    removeEdges edges = do
         graph <- R.asks sGraph
-        (from, to) <- DG.insertEdge graph edge
         state <- R.asks sMState
-        -- BEGIN assertion
-        existingEdge <- fromMaybe (error $ "Missing 'edgeTo' edge for: " ++ show edge) <$>
-                            liftST (Arr.readArray (edgeTo state) to)
-        assert (  E.fromNode existingEdge == E.fromNode edge
-               && E.toNode existingEdge == E.toNode edge
-               ) (return ())
-        -- END assertion
-        when (E.weight existingEdge == E.weight edge) $
-            liftST $ Arr.writeArray (edgeTo state) to (Just edge)
-        -- TODO: how to handle a change in a cycle?
-        MV.writeMutVar (cycle state) []
-        -- Relax "from" vertex
-        unless (E.weight existingEdge == E.weight edge) $
-            relax from
+        -- Remove edges from graph
+        fromToList <- mapM (DG.removeEdge graph) edges
+        -- Make "to" vertices unrelaxed
+        mapM_ (unrelaxTo state) (map snd fromToList)
+        -- Relax "from" vertices
+        mapM_ relax (map fst fromToList)
+      where
+        unrelaxTo :: MState s g e -> Vertex g -> BFUpdate s g e v 'RelaxChanged ()
+        unrelaxTo state to = liftST $ do
+            Arr.writeArray (distTo state) to (1/0)
+            Arr.writeArray (edgeTo state) to Nothing
 
-    removeEdge edge = do
-        -- Remove edge from graph
-        graph <- R.asks sGraph
-        (from, to) <- DG.removeEdge graph edge
-        -- Make "to" vertex unrelaxed
-        state <- R.asks sMState
-        liftST $ Arr.writeArray (distTo state) to (1/0)
-        liftST $ Arr.writeArray (edgeTo state) to Nothing
-        MV.writeMutVar (cycle state) []
-        -- Relax "from" vertex
-        relax from
+
+    -- updateEdge edge = do
+    --     -- Update edge in graph
+    --     graph <- R.asks sGraph
+    --     (from, to) <- DG.insertEdge graph edge
+    --     state <- R.asks sMState
+    --     -- BEGIN assertion
+    --     existingEdge <- fromMaybe (error $ "Missing 'edgeTo' edge for: " ++ show edge) <$>
+    --                         liftST (Arr.readArray (edgeTo state) to)
+    --     assert (  E.fromNode existingEdge == E.fromNode edge
+    --            && E.toNode existingEdge == E.toNode edge
+    --            ) (return ())
+    --     -- END assertion
+    --     when (E.weight existingEdge == E.weight edge) $
+    --         liftST $ Arr.writeArray (edgeTo state) to (Just edge)
+    --     -- TODO: how to handle a change in a cycle?
+    --     MV.writeMutVar (cycle state) []
+    --     -- Relax "from" vertex
+    --     unless (E.weight existingEdge == E.weight edge) $
+    --         relax from
 
 -- |
 runBF
@@ -199,7 +227,7 @@ runBFMulti graph weightCombine src bf = do
     mutState <- createMState graph
     -- resetMState mutState allVertices
     srcVertex <- U.lookupVertex graph src
-    let state = State graph weightCombine mutState srcVertex
+    let state = State graph (src, srcVertex) weightCombine mutState
     R.runReaderT (getBF $ bellmanFord >> bf) state
 
 getGraph
@@ -208,9 +236,9 @@ getGraph = R.asks sGraph
 
 data State s g e v = State
     { sGraph            :: DG.Digraph s g e v
+    , sSrc              :: (v, Vertex g)
     , sWeightCombine    :: (Double -> e -> Double)
     , sMState           :: MState s g e
-    , sSrc              :: Vertex g
     }
 
 -- |
@@ -261,7 +289,7 @@ bellmanFord
     => BFUpdate s g e v mode ()
 bellmanFord = do
     state <- R.asks sMState
-    srcVertex <- R.asks sSrc
+    srcVertex <- snd <$> R.asks sSrc
     liftST $ Arr.writeArray (distTo state) srcVertex 0.0
     liftST $ enqueueVertex state srcVertex
     go state
