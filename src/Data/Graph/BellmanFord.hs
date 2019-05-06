@@ -15,6 +15,8 @@ module Data.Graph.BellmanFord
   -- * Queries
 , pathTo
 , negativeCycle
+  -- TODO: rename
+, newAlgorithm
   -- * Types
 , E.DirectedEdge(..)
 , E.WeightedEdge(..)
@@ -59,7 +61,6 @@ newAlgorithm
     => v
     -> BFUpdate s g e v mode (Arbitrage src e, MatchResult src e)
 newAlgorithm targetVertex = do
-    graph <- getGraph
     -- Arbitrages
     let goArbitrages
             :: [NE.NonEmpty e]
@@ -289,6 +290,10 @@ bellmanFord
     => BFUpdate s g e v mode ()
 bellmanFord = do
     state <- R.asks sMState
+    -- BEGIN HACK: make things work for now before algorithm is improved
+    vertices <- liftST $ range <$> Arr.getBounds (distTo state)
+    liftST $ resetMState state vertices
+    -- END HACK: make things work for now before algorithm is improved
     srcVertex <- snd <$> R.asks sSrc
     liftST $ Arr.writeArray (distTo state) srcVertex 0.0
     liftST $ enqueueVertex state srcVertex
