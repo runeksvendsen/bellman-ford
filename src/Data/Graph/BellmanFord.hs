@@ -42,6 +42,40 @@ import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 
 
+
+newtype Arbitrage (src :: Symbol) a = Arbitrage [NE.NonEmpty a]
+newtype MatchResult (src :: Symbol) a = MatchResult [NE.NonEmpty a]
+
+
+newAlgorithm
+    :: forall src s g e v. KnownSymbol src
+    => BF s g e v (Arbitrage src e, MatchResult src e)
+newAlgorithm targetVertex = do
+    graph <- getGraph
+    -- Arbitrages
+    let goArbitrages accum = do
+        bellmanFord (symbolVal (Proxy :: Proxy src))
+        negativeCycleM <- negativeCycle
+        case negativeCycleM of
+            Just edges -> do
+                forM_ edges (DG.removeEdge graph)
+
+                goArbitrages $ edges : accum
+            Nothing -> return $ Arbitrage accum
+    arbitrage <- goArbitrages []
+    -- MatchResult
+    let goMatch accum = do
+        matchedOrdersM <- pathTo targetVertex
+        case matchedOrdersM of
+            Just edges -> do
+                forM_ edges (DG.removeEdge graph)
+                goMatch $ edges : accum
+            Nothing -> return $ MatchResult accum
+    matchResult <- goMatch []
+    return (arbitrage, matchResult)
+
+
+
 type BFUpdateAll s g e v     = BFUpdate s g e v 'RelaxAll
 type BFUpdateChanged s g e v = BFUpdate s g e v 'RelaxChanged
 type BF s g e v = BFUpdateAll s g e v
