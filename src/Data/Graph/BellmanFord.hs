@@ -276,7 +276,10 @@ check source = do
         -- check that weight of negative cycle is negative
         let weight = sum $ map E.weight negativeCycle'
         when (weight >= 0.0) $
-            error $ "negative cycle is non-negative: " ++ show weight
+            error $ unlines [ "negative cycle is non-negative"
+                            , printf "weight: %s" (show weight)
+                            , printf "edges: %s" (show negativeCycle')
+                            ]
     checkNoCycle state graph calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
         whenM ((/= 0.0) <$> Arr.readArray (distTo state) source) $
