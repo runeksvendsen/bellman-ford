@@ -39,9 +39,6 @@ import           Data.Graph.Types.Internal          ( MGraph(MGraph, mgraphVerte
 import           Data.Hashable                      (Hashable)
 import qualified Data.HashMap.Mutable.Basic         as HM
 import qualified Data.Primitive.MutVar              as MV
-import           Control.DeepSeq                    (NFData(rnf))
-import           Control.Monad.ST                   (RealWorld)
-import           System.IO.Unsafe                   (unsafePerformIO)
 
 
 -- | A graph with directed edges.
@@ -56,13 +53,6 @@ data Digraph s g e v = Digraph
       -- | A map from a vertex id to its incoming edges.
     , dgInEdges    :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
     }
-
-instance (NFData e, NFData v) => NFData (Digraph RealWorld g e v) where
-    rnf graph@(Digraph _ outEdgeMap _) = unsafePerformIO $ do
-        _ <- map rnf <$> vertexLabels graph
-        HM.mapM_ evalEdges outEdgeMap
-      where
-        evalEdges _ = HM.mapM_ (\_ -> return . rnf)
 
 instance Show (Digraph s g e v) where
     show = const "Digraph"
