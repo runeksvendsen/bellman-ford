@@ -1,17 +1,11 @@
 resolver: lts-13.12
 
-packages:
-- .
-- location:
-    git: https://github.com/runeksvendsen/mono-traversable.git
-    commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
-    subdirs:
-      - mutable-containers
-  extra-dep: true
-- location:
-    git: https://github.com/runeksvendsen/impure-containers.git
-    commit: 0f00dc9a617d5312b6fe5e9ddb9c2b4b9d0afdaf
-  extra-dep: true
-
 extra-deps:
-- containers-0.5.11.0@sha256:28ad7337057442f75bc689315ab4ec7bdf5e6b2c39668f306672cecd82c02798
+- git: https://github.com/runeksvendsen/mono-traversable.git
+  commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
+  subdirs:
+    - mutable-containers
+- git: https://github.com/runeksvendsen/impure-containers.git
+  commit: 0f00dc9a617d5312b6fe5e9ddb9c2b4b9d0afdaf
+- containers-0.5.11.0@sha256:28ad7337057442f75bc689315ab4ec7bdf5e6b2c39668f306672cecd82c02798,16685
+- binary-0.8.8.0@sha256:e9387a7ef2b34c6a23b09664c306e37cc01ae2cb4e4511a1c96ffb14008c24b0,6262
