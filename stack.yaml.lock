@@ -6,9 +6,6 @@
 packages:
 - completed:
     subdir: mutable-containers
-    cabal-file:
-      size: 2299
-      sha256: ddb1170cd8741d3b27c28cb6eb0937b56ea0746289494b805ec95e39780faac0
     name: mutable-containers
     version: 0.3.4
     git: https://github.com/runeksvendsen/mono-traversable.git
@@ -21,9 +18,6 @@ packages:
     git: https://github.com/runeksvendsen/mono-traversable.git
     commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
 - completed:
-    cabal-file:
-      size: 6458
-      sha256: 8490a87f2795654414b2a0b90ee5ab92d04606a7a7b3be707ad730a0fd564fb8
     name: impure-containers
     version: 0.5.0
     git: https://github.com/runeksvendsen/impure-containers.git
@@ -48,9 +42,16 @@ packages:
       sha256: 271cd1e75af293fc25a489d860f094dc635a4ed8b56aa5b343c58f4637736ca3
   original:
     hackage: binary-0.8.8.0@sha256:e9387a7ef2b34c6a23b09664c306e37cc01ae2cb4e4511a1c96ffb14008c24b0,6262
+- completed:
+    hackage: text-1.2.4.0@sha256:8c24450feb8e3bbb7ea3e17af24ef57e85db077c4bf53e5bcc345b283d1b1d5b,10081
+    pantry-tree:
+      size: 7457
+      sha256: 3437b0a73ce2ae1a81aa8b3438d41a85981c00894cdbee0d6d6d6873046a5d5d
+  original:
+    hackage: text-1.2.4.0@sha256:8c24450feb8e3bbb7ea3e17af24ef57e85db077c4bf53e5bcc345b283d1b1d5b,10081
 snapshots:
 - completed:
-    size: 496635
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/13/12.yaml
-    sha256: 67b74d6acad1342ba8089b75f415c1c63897e3f32091863c921104e8d0bdcfa0
-  original: lts-13.12
+    size: 523443
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/0.yaml
+    sha256: 283773e7120f5446d961eab35ea95c9af9c24187cc178537bd29273200a05171
+  original: lts-14.0
