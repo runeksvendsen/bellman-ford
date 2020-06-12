@@ -39,14 +39,15 @@ type BF s g e v = R.ReaderT (State s g e v) (ST s)
 runBF
     :: DG.Digraph s g e v
     -> (Double -> e -> Double)
-    -- | Weight combination function "f".
-    --   "f a b" calculates a new distance to a "to" vertex.
-    ---  "a" is the distance to the edge's "from vertex",
-    --    and "b" is the edge going from "from" to "to". If the value returned by this
-    --    function is less than the current distance to "to", the distance to "to" will
+    -- ^ Weight combination function @f@.
+    --   @f a b@ calculates a new distance to a /to/-vertex.
+    --   @a@ is the distance to the edge's /from/-vertex,
+    --    and @b@ is the edge going from the /from/-vertex to the /to/-vertex.
+    --   If the value returned by this
+    --    function is less than the current distance to /to/ the distance to /to/ will
     --    be updated.
-    --  E.g. for Dijkstra with type parameter "e" equal to "Double",
-    --   this function would simply be "(+)".
+    --  E.g. for Dijkstra with type parameter @e@ equal to 'Double',
+    --   this function would simply be @('+')@.
     -> BF s g e v a
     -> ST s a
 runBF graph weightCombine bf = do
