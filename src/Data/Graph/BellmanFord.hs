@@ -134,20 +134,22 @@ bellmanFord src = do
 
 -- |
 pathTo
-    :: (E.DirectedEdge e v, Show v)
+    :: (E.DirectedEdge e v, Show v, Show e)
     => v                        -- ^ Target vertex
     -> BF s g e v (Maybe [e])
 pathTo target = do
     graph <- R.asks sGraph
     state <- R.asks sMState
-    whenM hasNegativeCycle $
-        error "Negative cost cycle exists"
+    -- Check for negative cycle
+    negativeCycle >>= maybe (return ()) failNegativeCycle
     targetVertex <- U.lookupVertex graph target
     pathExists <- R.lift $ hasPathTo state targetVertex
     R.lift $ if pathExists
         then Just <$> go graph state [] targetVertex
         else return Nothing
   where
+    failNegativeCycle cycle' =
+        error $ "Negative-cost cycle exists (target=" ++ show target ++ "): " ++ show cycle'
     go graph state accum toVertex = do
         edgeM <- Arr.readArray (edgeTo state) toVertex
         case edgeM of
