@@ -25,7 +25,6 @@ import qualified Data.Graph.Cycle                   as C
 import           Control.Monad.ST                   (ST)
 import           Data.Array.ST                      (STArray, STUArray)
 import qualified Data.Queue                         as Q
-import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
@@ -37,7 +36,7 @@ type BF s g e v = R.ReaderT (State s g e v) (ST s)
 
 -- |
 runBF
-    :: DG.Digraph s g e v
+    :: DG.Digraph s v DG.Text e
     -> (Double -> e -> Double)
     -- ^ Weight combination function @f@.
     --   @f a b@ calculates a new distance to a /to/-vertex.
@@ -56,11 +55,11 @@ runBF graph weightCombine bf = do
     R.runReaderT bf state
 
 getGraph
-    :: BF s g e v (DG.Digraph s g e v)
+    :: BF s g e v (DG.Digraph s v DG.Text e)
 getGraph = R.asks sGraph
 
 data State s g e v = State
-    { sGraph            :: DG.Digraph s g e v
+    { sGraph            :: DG.Digraph s v DG.Text e
     , sWeightCombine    :: (Double -> e -> Double)
     , sMState           :: MState s g e
     }
@@ -68,13 +67,13 @@ data State s g e v = State
 -- |
 data MState s g e = MState
     { -- | distTo[v] = distance of shortest s->v path
-      distTo    :: STUArray s (Vertex g) Double
+      distTo    :: STUArray s (DG.Vertex g) Double
       -- | edgeTo[v] = last edge on shortest s->v path
-    , edgeTo    :: STArray s (Vertex g) (Maybe e)
+    , edgeTo    :: STArray s (DG.Vertex g) (Maybe e)
       -- | onQueue[v] = is v currently on the queue?
-    , onQueue   :: STUArray s (Vertex g) Bool
+    , onQueue   :: STUArray s (DG.Vertex g) Bool
       -- | queue of vertices to relax
-    , queue     :: Q.MQueue s (Vertex g)
+    , queue     :: Q.MQueue s (DG.Vertex g)
       -- | number of calls to relax()
     , cost      :: MV.MutVar s Word
       -- | negative cycle (empty list if no such cycle)
@@ -94,14 +93,14 @@ resetState mutState = R.lift $ do
     MV.atomicModifyMutVar' (cycle mutState) (const ([], ()))
   where
     emptyQueue
-        :: Q.MQueue s (Vertex g)
+        :: Q.MQueue s (DG.Vertex g)
         -> ST s ()
     emptyQueue queue' = do
         let go = maybe (return ()) (\_ -> Q.dequeue queue' >>= go)
         Q.dequeue queue' >>= go
     fillArray
         :: Arr.MArray a e (ST s)
-        => a (Vertex g) e
+        => a (DG.Vertex g) e
         -> e
         -> (ST s) ()
     fillArray arr value = do
@@ -110,14 +109,14 @@ resetState mutState = R.lift $ do
 
 -- |
 bellmanFord
-    :: (E.WeightedEdge e v Double, Eq e, Show e, Show v)
+    :: (E.WeightedEdge e v Double, Eq e, Ord v, Show e, Show v)
     => v    -- ^ Source vertex
     -> BF s g e v ()
 bellmanFord src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     resetState state    -- HACK: make things work for now before algorithm is improved
-    srcVertex <- U.lookupVertex graph src
+    srcVertex <- R.lift $ U.lookupVertex graph src
     R.lift $ Arr.writeArray (distTo state) srcVertex 0.0
     R.lift $ enqueueVertex state srcVertex
     go state
@@ -142,7 +141,7 @@ pathTo target = do
     state <- R.asks sMState
     -- Check for negative cycle
     negativeCycle >>= maybe (return ()) failNegativeCycle
-    targetVertex <- U.lookupVertex graph target
+    targetVertex <- R.lift $ U.lookupVertex graph target
     pathExists <- R.lift $ hasPathTo state targetVertex
     R.lift $ if pathExists
         then Just <$> go graph state [] targetVertex
@@ -160,28 +159,28 @@ pathTo target = do
 
 hasPathTo
     :: MState s g e
-    -> Vertex g
+    -> DG.Vertex g
     -> ST s Bool
 hasPathTo state target =
     (< (1/0)) <$> Arr.readArray (distTo state) target
 
 -- |
 relax
-    :: (E.WeightedEdge e v Double, Show e, Show v)
-    => Vertex g
+    :: (E.WeightedEdge e v Double, Ord v, Show e, Show v)
+    => DG.Vertex g
     -> BF s g e v ()
 relax vertex = do
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    edgeList   <- DG.outgoingEdges graph vertex
+    edgeList   <- R.lift $ DG.outgoingEdges graph vertex
     distToFrom <- R.lift $ Arr.readArray (distTo state) vertex
-    vertexCount <- DG.vertexCount graph
+    vertexCount <- R.lift $ DG.vertexCount graph
     mapM_ (handleEdge graph state calcWeight vertexCount distToFrom) edgeList
   where
     handleEdge graph state calcWeight vertexCount distToFrom edge =
         unlessM hasNegativeCycle $ do
-            to <- U.lookupVertex graph (E.toNode edge)
+            to <- R.lift $ U.lookupVertex graph (E.toNode edge)
             -- Look up current distance to "to" vertex
             distToTo <- R.lift $ Arr.readArray (distTo state) to
             -- Actual relaxation
@@ -198,12 +197,12 @@ relax vertex = do
                 findNegativeCycle
 
 findNegativeCycle
-    :: (E.DirectedEdge e v, Show e, Show v)
+    :: (E.DirectedEdge e v, Ord v, Show e, Show v)
     => BF s g e v ()
 findNegativeCycle = do
     state    <- R.asks sMState
     spEdges  <- R.lift $ Arr.getElems (edgeTo state)
-    sptGraph <- DG.fromEdges (catMaybes spEdges)
+    sptGraph <- R.lift $ DG.fromEdges (catMaybes spEdges)
     R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
 
 hasNegativeCycle
@@ -224,14 +223,14 @@ negativeCycle = do
 
 -- | Create initial 'MState'
 initState
-    :: DG.Digraph s g e v   -- ^ Graph
+    :: DG.Digraph s v ek e   -- ^ Graph
     -> ST s (MState s g e)   -- ^ Initialized state
 initState graph = do
-    vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
+    vertexCount <- DG.Vertex . fromIntegral <$> DG.vertexCount graph
     MState
-        <$> Arr.newArray (Vertex 0, vertexCount) (1/0)      -- distTo
-        <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (Vertex 0, vertexCount) False      -- onQueue
+        <$> Arr.newArray (DG.Vertex 0, vertexCount) (1/0)      -- distTo
+        <*> Arr.newArray (DG.Vertex 0, vertexCount) Nothing    -- edgeTo
+        <*> Arr.newArray (DG.Vertex 0, vertexCount) False      -- onQueue
         <*> Q.new                                           -- queue
         <*> MV.newMutVar 0                                  -- cost
         <*> MV.newMutVar []                                 -- cycle
@@ -239,7 +238,7 @@ initState graph = do
 -- | Add vertex to queue (helper function)
 enqueueVertex
     :: MState s g e
-    -> Vertex g
+    -> DG.Vertex g
     -> ST s ()
 enqueueVertex state vertex = do
     Arr.writeArray (onQueue state) vertex True  -- Mark vertex as being in queue
@@ -248,7 +247,7 @@ enqueueVertex state vertex = do
 -- | Remove vertex from queue (helper function)
 dequeueVertex
     :: MState s g e
-    -> ST s (Maybe (Vertex g))
+    -> ST s (Maybe (DG.Vertex g))
 dequeueVertex state = do
     -- Remove vertex from queue
     vertexM <- Q.dequeue (queue state)
@@ -263,7 +262,7 @@ dequeueVertex state = do
 -- (ii') for all edges e = v->w on the SPT: distTo[w] == distTo[v] + e.weight()
 check
     :: (E.WeightedEdge e v Double, Eq e, Show e, Show v)
-    => Vertex g
+    => DG.Vertex g
     -> BF s g e v Bool
 check source = do
     graph      <- R.asks sGraph

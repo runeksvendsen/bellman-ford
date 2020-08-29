@@ -15,7 +15,6 @@ import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Control.Monad.ST                   (ST)
 import qualified Data.Array.ST                      as ST
-import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
@@ -25,11 +24,11 @@ import           Data.List                          (foldl')
 -- |
 data State s g e = State
     { -- | marked[v] = has vertex v been marked?
-      marked    :: ST.STUArray s (Vertex g) Bool
+      marked    :: ST.STUArray s (DG.Vertex g) Bool
       -- | edgeTo[v] = previous edge on path to v
-    , edgeTo    :: ST.STArray s (Vertex g) (Maybe e)
+    , edgeTo    :: ST.STArray s (DG.Vertex g) (Maybe e)
       -- | onStack[v] = is vertex on the stack?
-    , onStack   :: ST.STUArray s (Vertex g) Bool
+    , onStack   :: ST.STUArray s (DG.Vertex g) Bool
       -- | directed cycle (empty list = no cycle)
     , cycle     :: MV.MutVar s [e]
     }
@@ -37,7 +36,7 @@ data State s g e = State
 -- | Return cycle (empty list if no cycle exists)
 findCycle
     :: (E.DirectedEdge e v, Show e, Show v)
-    => DG.Digraph s g e v
+    => DG.Digraph s v ek e
     -> ST s [e]
 findCycle graph = do
     state <- initState graph
@@ -48,9 +47,9 @@ findCycle graph = do
     MV.readMutVar (cycle state)
 
 dfs :: (E.DirectedEdge e v, Show v)
-    => DG.Digraph s g e v   -- ^ Graph
+    => DG.Digraph s v ek e   -- ^ Graph
     -> State s g e          -- ^ State
-    -> Vertex g             -- ^ Start vertex
+    -> DG.Vertex g             -- ^ Start vertex
     -> ST s ()
 dfs graph state vertex = do
     Arr.writeArray (onStack state) vertex True
@@ -78,11 +77,11 @@ dfs graph state vertex = do
 --    and going back until we reach an edge with a "from"-vertex that
 --    equals the given vertex.
 traceBackCycle
-    :: forall s g e v.
+    :: forall s g v ek e.
        (Hashable v, E.DirectedEdge e v, Show v)
-    => DG.Digraph s g e v   -- ^ Graph
+    => DG.Digraph s v ek e   -- ^ Graph
     -> State s g e          -- ^ State
-    -> Vertex g             -- ^ Vertex where cycle ends (and starts)
+    -> DG.Vertex g             -- ^ DG.Vertex where cycle ends (and starts)
     -> e                    -- ^ The last edge of the cycle
     -> ST s [e]
 traceBackCycle graph state startVertex lastEdge =
@@ -106,14 +105,14 @@ hasCycle = fmap (not . null) . MV.readMutVar . cycle
 
 -- | Create initial 'State'
 initState
-    :: DG.Digraph s g e v   -- ^ Graph
+    :: DG.Digraph s v ek e   -- ^ Graph
     -> ST s (State s g e)   -- ^ Initialized state
 initState graph = do
-    vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
+    vertexCount <- DG.Vertex . fromIntegral <$> DG.vertexCount graph
     state <- State
-        <$> Arr.newArray (Vertex 0, vertexCount) False      -- marked
-        <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (Vertex 0, vertexCount) False      -- onStack
+        <$> Arr.newArray (DG.Vertex 0, vertexCount) False      -- marked
+        <*> Arr.newArray (DG.Vertex 0, vertexCount) Nothing    -- edgeTo
+        <*> Arr.newArray (DG.Vertex 0, vertexCount) False      -- onStack
         <*> MV.newMutVar []                                 -- cycle
     return state
 

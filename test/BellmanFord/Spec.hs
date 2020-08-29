@@ -43,13 +43,13 @@ spec = Tasty.testGroup "BellmanFord"
     ]
 
 bellmanFord
-    :: (Lib.WeightedEdge e v Double, Eq e, Show e, Show v)
+    :: (Lib.WeightedEdge e v Double, Eq e, Ord v, Show e, Show v)
     => (Double -> Double -> Double)
     -> [e]
     -> Expectation
 bellmanFord combine edges = do
     graph <- fromShuffledEdges edges
-    vertices <- Lib.vertexLabels graph
+    vertices <- ST.stToIO $ Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source ->
         Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) $
             Lib.bellmanFord source
@@ -63,8 +63,9 @@ findsNegativeCycle
     -> NegativeCycle
     -> Expectation
 findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
-    graph <- fromShuffledEdges (map positiveWeight positiveEdges)
-    mapM_ (Lib.insertEdge graph) =<< Shuffle.shuffleM (NE.toList cycleEdges)
+    shuffledPositiveEdges <- Shuffle.shuffleM (map positiveWeight positiveEdges)
+    shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges)
+    graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
     negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun $ do
@@ -84,4 +85,4 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     weightCombFun weight edge = weight + Lib.weight edge
 
 fromShuffledEdges edges =
-    Shuffle.shuffleM edges >>= Lib.fromEdges
+    Shuffle.shuffleM edges >>= ST.stToIO . Lib.fromEdges

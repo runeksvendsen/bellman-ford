@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Types.Cycle
 ( EdgeCycle(..)
 , NegativeCycle(..)
@@ -52,7 +53,7 @@ edgeCycleEdges = do
     --    => [a, b, b, c, c, d, d, a]
     --    => [(a,b), (b,c), (c,d), (d,a)]
     let vertexPairs = pairUp $ headToLast (duplicate vertexList)
-        toEdgeM (from,to) = TestEdge from to <$> genData
+        toEdgeM (from,to) = TestEdge from to <$> genData <*> return ""
     NE.fromList <$> mapM toEdgeM vertexPairs
   where
     headToLast :: [a] -> [a]

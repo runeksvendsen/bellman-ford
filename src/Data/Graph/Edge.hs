@@ -7,7 +7,7 @@ module Data.Graph.Edge
 where
 
 import           Data.Hashable                  (Hashable)
-
+import qualified Data.Text  as T
 
 -- | An edge in a graph
 class ( Eq nodeLabel
@@ -15,6 +15,7 @@ class ( Eq nodeLabel
       ) => DirectedEdge edge nodeLabel | edge -> nodeLabel where
     fromNode :: edge -> nodeLabel   -- ^ Label associated with the edge's "from" node
     toNode   :: edge -> nodeLabel   -- ^ Label associated with the edge's "to" node
+    multiKey :: edge -> T.Text      -- ^ Temporary hack
 
 -- | A weighted edge
 class ( DirectedEdge edge nodeLabel
