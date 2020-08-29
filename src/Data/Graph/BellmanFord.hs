@@ -277,7 +277,7 @@ check source = do
         negativeCycle' <- MV.readMutVar (cycle state)
         -- check that weight of negative cycle is negative
         let weight = sum $ map E.weight negativeCycle'
-        when (weight >= 0.0) $
+        when (weight > 0.0) $
             error $ unlines [ "negative cycle is non-negative"
                             , printf "weight: %s" (show weight)
                             , printf "edges: %s" (show negativeCycle')
