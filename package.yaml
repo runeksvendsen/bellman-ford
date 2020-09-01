@@ -31,12 +31,12 @@ library:
   - mtl
   - transformers
   - deepseq
+  - hashtables
   exposed-modules:
   - Data.Graph.BellmanFord
   - Data.Graph.Cycle
   - Data.Graph.Digraph
   - Data.Graph.Edge
-  - Data.Graph.Orphans
   - Data.Graph.Prelude
   - Data.Graph.Util
   - Data.Queue

@@ -1,248 +1,160 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.Digraph
-( -- * Types
-  Digraph
-, Vertex
-  -- * Building
-, new
-, withGraph
+( Digraph
 , fromEdges
-, insertVertex
-, lookupVertex
-, insertEdge
+, updateEdge
 , removeEdge
-, removeIncidentEdges
-  -- * Queries
 , vertexCount
 , edgeCount
 , vertices
 , vertexLabels
 , outgoingEdges
-, incomingEdges
-, degree
+, lookupVertex
+, VertexId(VertexId)
   -- * Re-exports
-, DirectedEdge(..)
+, E.DirectedEdge(..)
+, module IdxEdge -- TODO: don't export constructor
 )
 where
 
-import           Data.Graph.Prelude
-import           Data.Graph.Edge                    (DirectedEdge(..))
-import           Data.Graph.Orphans                 ()
-import qualified Data.Graph.Mutable                 as Mut
-import           Data.Graph.Types                   (Vertex)
-import           Data.Graph.Types.Internal          ( MGraph(MGraph, mgraphVertexIndex)
-                                                    , mgraphCurrentId, Vertex(Vertex)
-                                                    , getVertexInternal
-                                                    , IntPair(IntPair)
-                                                    )
-import           Data.Hashable                      (Hashable)
-import qualified Data.HashMap.Mutable.Basic         as HM
-import qualified Data.Primitive.MutVar              as MV
+import Data.Graph.Prelude
+import qualified Data.Graph.Edge as E
+import Data.Graph.IdxEdge as IdxEdge
+
+import Data.List (sort, group)
+import qualified Data.Array.ST as Arr
+import qualified Data.HashTable.ST.Basic as HT
 
 
--- | A graph with directed edges.
---   Can only contain a single edge from one vertex to another.
-data Digraph s g e v = Digraph
-    { -- | The underlying graph
-      dgGraph      :: !(MGraph s g e v)
-      -- | A map from a vertex id to its outgoing edges.
-      --   Each outgoing vertex id is mapped to a "(fromNode, toNode) -> edge"-map
-      --    in order to increase the speed of looking up a specific edge.
-    , dgOutEdges   :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
-      -- | A map from a vertex id to its incoming edges.
-    , dgInEdges    :: !(HM.MHashMap s (Vertex g) (HM.MHashMap s IntPair e))
-    }
-
-instance Show (Digraph s g e v) where
-    show = const "Digraph"
-
-new
-    :: (PrimMonad m)
-    => m (Digraph (PrimState m) () e v)
-new = newInternal
-
-newInternal
-    :: (PrimMonad m)
-    => m (Digraph (PrimState m) g e v)
-newInternal =
-    Digraph <$> mgraph <*> HM.new <*> HM.new
-  where
-    mgraph = MGraph <$> HM.new <*> MV.newMutVar 0 <*> HM.new
-
--- | Safely work with 'Vertex' types.
---   All 'Vertex'es returned by a function taking the provided
---    'Digraph' as argument can only be used on this same 'Digraph'.
-withGraph
-    :: PrimMonad m
-    => (forall g. Digraph (PrimState m) g e v -> m a)   -- ^ Takes an empty 'Digraph' as argument
-    -> m a
-withGraph f =
-  newInternal >>= f
+data Digraph s v meta = Digraph
+                    -- vertex count
+    {-# UNPACK #-} !Word
+                    -- vertexId -> (dstVertexId -> outgoingEdge)
+    {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
+                    -- v -> vid
+    {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
 fromEdges
-    :: (PrimMonad m, DirectedEdge e v)
-    => [e]
-    -> m (Digraph (PrimState m) () e v)
+    :: (Eq v, Ord v, Hashable v, DirectedEdge edge v meta)
+    => [edge]   -- ^ (meta, from, to)
+    -> ST s (Digraph s v meta)
 fromEdges edges = do
-    graph <- new
-    forM_ edges (insertEdge graph)
-    return graph
+    -- Create vertex->index map
+    indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
+    -- Initialize vertex-index map
+    forM_ (zip uniqueVertices [1..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
+    -- Initialize vertex array
+    outEdgeMapList <- sequence $ replicate vertexCount' HT.new
+    vertexArray <- Arr.newListArray (VertexId 1, VertexId (vertexCount'+1)) outEdgeMapList
+    -- Populate vertex array
+    mapM_ (insertEdge_ vertexArray indexMap) edges
+    return $ Digraph (fromIntegral vertexCount') vertexArray indexMap
+  where
+    vertexCount' = length uniqueVertices
+    uniqueVertices = map head . group . sort $
+        map E.fromNode edges ++ map E.toNode edges
 
--- | Insert vertex by label
-insertVertex
-    :: (PrimMonad m, Eq v, Hashable v)
-    => Digraph (PrimState m) g e v
-    -> v
-    -> m (Vertex g)
-insertVertex (Digraph g _ _) =
-    Mut.insertVertex g
+insertEdge_
+    :: DirectedEdge edge v meta
+    => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    -> HT.HashTable s v VertexId
+    -> edge
+    -> ST s ()
+insertEdge_ vertexArray indexMap edge = do
+    fromIdx <- lookup' from
+    toIdx <- lookup' to
+    outEdgeMap <- Arr.readArray vertexArray fromIdx
+    let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
+    HT.insert outEdgeMap toIdx idxEdge
+  where
+    from = E.fromNode edge
+    to = E.toNode edge
+    lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
 
 -- | Look up vertex by label
 lookupVertex
-    :: (PrimMonad m, Eq v, Hashable v)
-    => Digraph (PrimState m) g e v
+    :: (Eq v, Hashable v)
+    => Digraph s v meta
     -> v
-    -> m (Maybe (Vertex g))
-lookupVertex (Digraph g _ _) =
-    Mut.lookupVertex g
+    -> ST s (Maybe VertexId)
+lookupVertex (Digraph _ _ indexMap) vertex = do
+    HT.lookup indexMap vertex
 
--- | Insert/overwrite edge
-insertEdge
-    :: (PrimMonad m, DirectedEdge e v)
-    => Digraph (PrimState m) g e v
-    -> e
-    -> m ()
-insertEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
-    fromVertex <- insertVertex graph (fromNode edge)
-    toVertex   <- insertVertex graph (toNode edge)
-    let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
-    edgeMapInsert outEdgeMap fromVertex intPair
-    edgeMapInsert inEdgeMap toVertex intPair
-  where
-    edgeMapInsert edgeMap vertex edgeKey = do
-        vertexEdgeMapM <- HM.lookup edgeMap vertex
-        vertexEdgeMap <- case vertexEdgeMapM of
-            Nothing -> do
-                vertexEdgeMap <- HM.new
-                HM.insert edgeMap vertex vertexEdgeMap
-                return vertexEdgeMap
-            Just vertexEdgeMap -> return vertexEdgeMap
-        HM.insert vertexEdgeMap edgeKey edge
+insertEdge__
+    :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    -> IdxEdge v meta
+    -> ST s ()
+insertEdge__ vertexArray idxEdge@IdxEdge{..} = do
+    outEdgeMap <- Arr.readArray vertexArray _eFromIdx
+    HT.insert outEdgeMap _eToIdx idxEdge
 
--- | Remove edge
+-- Overwrite an existing edge in the graph
+updateEdge
+    :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    -> IdxEdge v meta
+    -> ST s ()
+updateEdge = insertEdge__
+
+-- -- | Remove an existing edge from the graph
 removeEdge
-    :: (PrimMonad m, DirectedEdge e v)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> e                            -- ^ Edge to remove
-    -> m ()
-removeEdge graph@(Digraph _ outEdgeMap inEdgeMap) edge = do
-    fromVertex <- insertVertex graph (fromNode edge)
-    toVertex   <- insertVertex graph (toNode edge)
-    let intPair = IntPair (getVertexInternal fromVertex) (getVertexInternal toVertex)
-    edgeMapRemove outEdgeMap fromVertex intPair
-    edgeMapRemove inEdgeMap toVertex intPair
-  where
-    edgeMapRemove edgeMap vertex edgeKey = do
-        edgeMapM <- HM.lookup edgeMap vertex
-        case edgeMapM of
-            Nothing            -> return ()
-            Just vertexEdgeMap ->
-                HM.delete vertexEdgeMap edgeKey
+    :: Digraph s v meta
+    -> IdxEdge v meta
+    -> ST s ()
+removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
+    outEdgeMap <- Arr.readArray vertexArray _eFromIdx
+    HT.delete outEdgeMap _eToIdx
 
-removeIncidentEdges
-    :: (PrimMonad m, Eq v, Hashable v)
-    => Digraph (PrimState m) g e v
-    -> v
-    -> m ()
-removeIncidentEdges graph@(Digraph _ outEdgeMap inEdgeMap) vertexLabel = do
-    vertex <- insertVertex graph vertexLabel
-    removeEdges outEdgeMap vertex
-    removeEdges inEdgeMap vertex
-  where
-    removeEdges hmap v = do
-        emptyMap <- HM.new
-        HM.insert hmap v emptyMap
-
--- | Count of the number of vertices in the graph
+-- -- | Count of the number of vertices in the graph
 vertexCount
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> m Word                       -- ^ Vertex count
-vertexCount (Digraph graph _ _) =
-    fromIntegral <$> MV.readMutVar (mgraphCurrentId graph)
+    :: Digraph s v meta
+    -> ST s Word
+vertexCount (Digraph vc _ _) = return vc
 
 -- | Count of the number of edges in the graph
 edgeCount
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> m Word                       -- ^ Edge count
-edgeCount (Digraph _ outEdgeMap _) =
-    HM.foldM countEdges 0 outEdgeMap
+    :: Digraph s v meta
+    -> ST s Word
+edgeCount dg@(Digraph _ vertexArray _) = do
+    vertexIdList <- vertices dg
+    outEdgeMapList <- mapM (Arr.readArray vertexArray) vertexIdList
+    countList <- mapM countEdges outEdgeMapList
+    return $ sum countList
   where
-    countEdges count _ = HM.foldM (\innerCount _ _ -> return $ innerCount+1) count
+    countEdges ht =
+        HT.foldM (\innerCount _ -> return $ innerCount + 1) 0 ht
 
 -- | All the vertices in the graph
 vertices
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> m [Vertex g]                 -- ^ List of vertices in the graph
-vertices (Digraph graph _ _) = do
-    currId <- MV.readMutVar (mgraphCurrentId graph)
-    return $ fmap Vertex [0..currId-1]
+    :: Digraph s v meta
+    -> ST s [VertexId]
+vertices (Digraph vc _ _) =
+    return vertexIdList
+  where
+    vertexIdList = map (VertexId . fromIntegral) [1..vc]
 
 -- | All the vertex labels in the graph
 vertexLabels
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> m [v]                 -- ^ List of vertices in the graph
-vertexLabels (Digraph graph _ _) =
-    keySet (mgraphVertexIndex graph)
+    :: Digraph s v meta
+    -> ST s [v]
+vertexLabels (Digraph _ _ _) = undefined
 
 -- | All edges going out of the given vertex
 outgoingEdges
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> Vertex g                     -- ^ Vertex
-    -> m [e]
-outgoingEdges (Digraph _ outEdgeMap _) vertex = do
-    edgeMapM <- HM.lookup outEdgeMap vertex
-    maybe (return []) valueSet edgeMapM
-
--- | All edges into the given vertex
-incomingEdges
-    :: (PrimMonad m)
-    => Digraph (PrimState m) g e v  -- ^ Graph
-    -> Vertex g                     -- ^ Vertex
-    -> m [e]
-incomingEdges (Digraph _ _ inEdgeMap) vertex = do
-    edgeMapM <- HM.lookup inEdgeMap vertex
-    maybe (return []) valueSet edgeMapM
-
--- | Vertex degree (sum of number of outgoing+incoming edges)
-degree
-    :: (PrimMonad m, Eq v, Hashable v)
-    => Digraph (PrimState m) g e v
-    -> v
-    -> m Word
-degree graph vertexLabel = do
-    vertex <- insertVertex graph vertexLabel
-    outDegree <- length <$> outgoingEdges graph vertex
-    inDegree  <- length <$> incomingEdges graph vertex
-    return . fromIntegral $ outDegree + inDegree
-
--- | Set of map keys
-keySet
-    :: (PrimMonad m)
-    => HM.MHashMap (PrimState m) k v
-    -> m [k]
-keySet =
-    HM.foldM (\accum k _ -> return $ k : accum) []
+    :: Digraph s v meta
+    -> VertexId
+    -> ST s [IdxEdge v meta]
+outgoingEdges (Digraph _ vertexArray _) vid = do
+    outEdgeMap <- Arr.readArray vertexArray vid
+    valueSet outEdgeMap
 
 -- | Set of map values
 valueSet
-    :: (PrimMonad m)
-    => HM.MHashMap (PrimState m) k v
-    -> m [v]
+    :: HT.HashTable s k v
+    -> ST s [v]
 valueSet =
-    HM.foldM (\accum _ v -> return $ v : accum) []
+    HT.foldM (\accum (_, v) -> return $ v : accum) []

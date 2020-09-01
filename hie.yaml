@@ -1,6 +1,0 @@
-cradle:
-    stack:
-    - path: "./src"
-      component: "bellman-ford:lib"
-    - path: "./test"
-      component: "bellman-ford:test:bellman-ford-test"
