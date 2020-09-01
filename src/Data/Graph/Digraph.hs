@@ -95,10 +95,10 @@ insertEdge__ vertexArray idxEdge@IdxEdge{..} = do
 
 -- Overwrite an existing edge in the graph
 updateEdge
-    :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    :: Digraph s v meta
     -> IdxEdge v meta
     -> ST s ()
-updateEdge = insertEdge__
+updateEdge (Digraph _ vertexArray _) = insertEdge__ vertexArray
 
 -- -- | Remove an existing edge from the graph
 removeEdge
