@@ -34,7 +34,7 @@ data State s g v meta = State
 
 -- | Return cycle (empty list if no cycle exists)
 findCycle
-    :: (Show v, Eq v, Hashable v, Show (DG.IdxEdge v meta))
+    :: (Show v, Eq v, Hashable v, Show meta)
     => DG.Digraph s v meta
     -> ST s [DG.IdxEdge v meta]
 findCycle graph = do
@@ -115,7 +115,7 @@ initState graph = do
     return state
 
 -- certify that digraph is either acyclic or has a directed cycle
-check :: (Eq v, Hashable v, Show (DG.IdxEdge v meta)) => State s g v meta -> ST s Bool
+check :: (Eq v, Hashable v, Show v, Show meta) => State s g v meta -> ST s Bool
 check state = do
     whenM (hasCycle state) $
         MV.readMutVar (cycle state) >>= maybe (return ()) error . verifyCycle
