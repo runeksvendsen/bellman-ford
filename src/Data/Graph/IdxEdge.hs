@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -30,7 +31,7 @@ data IdxEdge v meta = IdxEdge
     , _eTo      :: !v
     , _eFromIdx :: {-# UNPACK #-} !VertexId
     , _eToIdx   :: {-# UNPACK #-} !VertexId
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Functor)
 
 instance (Eq v, Hashable v) => DirectedEdge (IdxEdge v meta) v meta where
    fromNode = _eFrom
