@@ -10,12 +10,10 @@ where
 
 import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
-import qualified Data.Graph.Util                    as U
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Control.Monad.ST                   (ST)
 import qualified Data.Array.ST                      as ST
-import           Data.Graph.Types.Internal          (Vertex(Vertex))
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
@@ -23,22 +21,22 @@ import           Data.List                          (foldl')
 
 
 -- |
-data State s g e = State
+data State s g v meta = State
     { -- | marked[v] = has vertex v been marked?
-      marked    :: ST.STUArray s (Vertex g) Bool
+      marked    :: ST.STUArray s (DG.VertexId) Bool
       -- | edgeTo[v] = previous edge on path to v
-    , edgeTo    :: ST.STArray s (Vertex g) (Maybe e)
+    , edgeTo    :: ST.STArray s (DG.VertexId) (Maybe (DG.IdxEdge v meta))
       -- | onStack[v] = is vertex on the stack?
-    , onStack   :: ST.STUArray s (Vertex g) Bool
+    , onStack   :: ST.STUArray s (DG.VertexId) Bool
       -- | directed cycle (empty list = no cycle)
-    , cycle     :: MV.MutVar s [e]
+    , cycle     :: MV.MutVar s [DG.IdxEdge v meta]
     }
 
 -- | Return cycle (empty list if no cycle exists)
 findCycle
-    :: (E.DirectedEdge e v, Show e, Show v)
-    => DG.Digraph s g e v
-    -> ST s [e]
+    :: (Show v, Eq v, Hashable v, Show (DG.IdxEdge v meta))
+    => DG.Digraph s v meta
+    -> ST s [DG.IdxEdge v meta]
 findCycle graph = do
     state <- initState graph
     vertices <- DG.vertices graph
@@ -47,10 +45,10 @@ findCycle graph = do
     (`assert` ()) <$> check state
     MV.readMutVar (cycle state)
 
-dfs :: (E.DirectedEdge e v, Show v)
-    => DG.Digraph s g e v   -- ^ Graph
-    -> State s g e          -- ^ State
-    -> Vertex g             -- ^ Start vertex
+dfs :: (Show v, Hashable v)
+    => DG.Digraph s v meta   -- ^ Graph
+    -> State s g v meta          -- ^ State
+    -> DG.VertexId             -- ^ Start vertex
     -> ST s ()
 dfs graph state vertex = do
     Arr.writeArray (onStack state) vertex True
@@ -61,7 +59,7 @@ dfs graph state vertex = do
   where
     handleEdge edge =
         unlessM (hasCycle state) $ do
-            w <- U.lookupVertex graph (E.toNode edge)
+            let w = DG.eToIdx edge
             wMarked <- Arr.readArray (marked state) w
             if not wMarked
                 then do
@@ -71,26 +69,25 @@ dfs graph state vertex = do
                 else
                     -- trace back directed cycle
                     whenM (Arr.readArray (onStack state) w) $
-                        traceBackCycle graph state w edge
+                        traceBackCycle state w edge
                             >>= MV.writeMutVar (cycle state)
 
 -- | Trace back a cycle by starting from the last edge in the cycle,
 --    and going back until we reach an edge with a "from"-vertex that
 --    equals the given vertex.
 traceBackCycle
-    :: forall s g e v.
-       (Hashable v, E.DirectedEdge e v, Show v)
-    => DG.Digraph s g e v   -- ^ Graph
-    -> State s g e          -- ^ State
-    -> Vertex g             -- ^ Vertex where cycle ends (and starts)
-    -> e                    -- ^ The last edge of the cycle
-    -> ST s [e]
-traceBackCycle graph state startVertex lastEdge =
+    :: forall s g v meta.
+       (Hashable v, Show v)
+    => State s g v meta          -- ^ State
+    -> DG.VertexId          -- ^ DG.VertexId where cycle ends (and starts)
+    -> DG.IdxEdge v meta                    -- ^ The last edge of the cycle
+    -> ST s [DG.IdxEdge v meta]
+traceBackCycle state startVertex lastEdge =
     go (lastEdge NE.:| [])
   where
-    go :: NE.NonEmpty e -> ST s [e]
+    go :: NE.NonEmpty (DG.IdxEdge v meta) -> ST s [DG.IdxEdge v meta]
     go accum@(edge NE.:| _) = do
-        fromVertex <- U.lookupVertex graph (E.fromNode edge)
+        let fromVertex = DG.eFromIdx edge
         if fromVertex /= startVertex
             then do
                 newEdgeM <- Arr.readArray (edgeTo state) fromVertex
@@ -100,25 +97,25 @@ traceBackCycle graph state startVertex lastEdge =
             else return $ NE.toList accum
 
 hasCycle
-    :: State s g e
+    :: State s g v meta
     -> ST s Bool
 hasCycle = fmap (not . null) . MV.readMutVar . cycle
 
 -- | Create initial 'State'
 initState
-    :: DG.Digraph s g e v   -- ^ Graph
-    -> ST s (State s g e)   -- ^ Initialized state
+    :: DG.Digraph s v meta   -- ^ Graph
+    -> ST s (State s g v meta)   -- ^ Initialized state
 initState graph = do
-    vertexCount <- Vertex . fromIntegral <$> DG.vertexCount graph
+    vertexCount <- DG.VertexId . fromIntegral <$> DG.vertexCount graph
     state <- State
-        <$> Arr.newArray (Vertex 0, vertexCount) False      -- marked
-        <*> Arr.newArray (Vertex 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (Vertex 0, vertexCount) False      -- onStack
+        <$> Arr.newArray (DG.VertexId 0, vertexCount) False      -- marked
+        <*> Arr.newArray (DG.VertexId 0, vertexCount) Nothing    -- edgeTo
+        <*> Arr.newArray (DG.VertexId 0, vertexCount) False      -- onStack
         <*> MV.newMutVar []                                 -- cycle
     return state
 
 -- certify that digraph is either acyclic or has a directed cycle
-check :: (E.DirectedEdge e a, Show e) => State s g e -> ST s Bool
+check :: (Eq v, Hashable v, Show (DG.IdxEdge v meta)) => State s g v meta -> ST s Bool
 check state = do
     whenM (hasCycle state) $
         MV.readMutVar (cycle state) >>= maybe (return ()) error . verifyCycle
@@ -127,7 +124,7 @@ check state = do
 -- | Verify that a given list of edges form a cycle.
 --   'Nothing' on no errors, otherwise a 'Just' with the description
 --      of the error.
-verifyCycle :: (E.DirectedEdge e a, Eq a, Show e) => [e] -> Maybe String
+verifyCycle :: (Eq v, Hashable v, E.DirectedEdge edge v meta, Show edge) => [edge] -> Maybe String
 verifyCycle           [] =
     Just "empty list of cycle edges"
 verifyCycle [singleEdge] =

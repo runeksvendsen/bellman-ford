@@ -1,13 +1,21 @@
 module Util
 ( -- * Module functions
   sameUniqueSequenceAs
+, fromIdxEdge
   -- * Test functions
 , test_sameUniqueSequenceAs
 )
 where
 
+import qualified Data.Graph.Digraph                 as Lib
+import           Types.Edge
+
 import qualified Data.List
 
+fromIdxEdge
+    :: (Lib.HasWeight meta Double)
+    => Lib.IdxEdge String meta -> TestEdge
+fromIdxEdge idxEdge = TestEdge (Lib.fromNode idxEdge) (Lib.toNode idxEdge) (Lib.weight $ Lib.metaData idxEdge)
 
 -- | Are the two given sequence "the same"?
 --   Here, two sequences "A" and "B" are defined as "the same"
