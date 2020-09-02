@@ -30,6 +30,8 @@ module Data.Graph.Digraph
 , eFromIdx
 , eToIdx
 , HasWeight(..)
+  -- * Internal
+, emptyClone
   -- * Re-exports
 , E.DirectedEdge(..)
 )
@@ -88,7 +90,7 @@ eToIdx = _eToIdx
 
 data Digraph s v meta = Digraph
                     -- vertex count
-    {-# UNPACK #-} !Word
+    {-# UNPACK #-} !Int
                     -- vertexId -> (dstVertexId -> outgoingEdge)
     {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
                     -- v -> vid
@@ -102,17 +104,29 @@ fromEdges edges = do
     -- Create vertex->index map
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
-    forM_ (zip uniqueVertices [1..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
+    forM_ (zip uniqueVertices [0..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
     -- Initialize vertex array
     outEdgeMapList <- sequence $ replicate vertexCount' HT.new
-    vertexArray <- Arr.newListArray (VertexId 1, VertexId (vertexCount'+1)) outEdgeMapList
+    vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
     -- Populate vertex array
     mapM_ (insertEdge_ vertexArray indexMap) edges
-    return $ Digraph (fromIntegral vertexCount') vertexArray indexMap
+    return $ Digraph vertexCount' vertexArray indexMap
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = map head . group . sort $
         map E.fromNode edges ++ map E.toNode edges
+
+-- | Return a copy of the input graph that has the same vertices
+--   but with all edges removed.
+emptyClone
+    :: forall s v meta.
+       Digraph s v meta
+    -> ST s (Digraph s v meta)
+emptyClone (Digraph vc _ indexMap) = do
+    emptyMaps <- sequence $ replicate vc HT.new
+    newVertexArray <- Arr.newListArray (VertexId 0, VertexId (vc - 1)) emptyMaps
+    -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
+    return $ Digraph vc newVertexArray indexMap
 
 insertEdge_
     :: E.DirectedEdge edge v meta
@@ -168,7 +182,7 @@ removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
 vertexCount
     :: Digraph s v meta
     -> ST s Word
-vertexCount (Digraph vc _ _) = return vc
+vertexCount (Digraph vc _ _) = return $ fromIntegral vc
 
 -- | Count of the number of edges in the graph
 edgeCount
@@ -190,7 +204,7 @@ vertices
 vertices (Digraph vc _ _) =
     return vertexIdList
   where
-    vertexIdList = map (VertexId . fromIntegral) [1..vc]
+    vertexIdList = map VertexId [0..vc-1]
 
 -- | All the vertex labels in the graph
 vertexLabels

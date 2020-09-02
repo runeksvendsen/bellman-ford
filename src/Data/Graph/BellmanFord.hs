@@ -202,8 +202,14 @@ findNegativeCycle
 findNegativeCycle = do
     state    <- R.asks sMState
     spEdges  <- R.lift $ Arr.getElems (edgeTo state)
-    sptGraph <- R.lift $ DG.fromEdges (catMaybes spEdges)
+    sptGraph <- mkSptGraph (catMaybes spEdges)
     R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
+  where
+    mkSptGraph spEdges = do
+        graph <- getGraph
+        sptGraph <- R.lift $ DG.emptyClone graph
+        R.lift $ mapM_ (DG.updateEdge sptGraph) spEdges
+        return sptGraph
 
 hasNegativeCycle
     :: BF s v meta Bool

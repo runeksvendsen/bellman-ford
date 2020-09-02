@@ -26,10 +26,10 @@ spec = Tasty.testGroup "Digraph" $
        [ QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
        ]
     , Tasty.testGroup "updateEdge"
-       [ QS.testProperty "updates edges present in 'outoingEdges'" updateEdges
+       [ QS.testProperty "updates edges present in 'outgoingEdges'" updateEdges
        ]
     , Tasty.testGroup "insertEdge"
-       [ QS.testProperty "all edges present in 'outoingEdges'" addEdgesCheckInOutgoing
+       [ QS.testProperty "all edges present in 'outgoingEdges'" addEdgesCheckInOutgoing
        ]
     , Tasty.testGroup "edgeCount"
        [ QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
@@ -85,9 +85,9 @@ removeDuplicateSrcDst =
 collectOutgoing :: Lib.Digraph s v meta -> ST s [Lib.IdxEdge v meta]
 collectOutgoing graph = do
     vertices <- Lib.vertices graph
-    concat <$> foldM lol [] vertices
+    concat <$> foldM collect [] vertices
   where
-    lol accum vertex = do
+    collect accum vertex = do
         outEdges <- Lib.outgoingEdges graph vertex
         return $ outEdges : accum
 
