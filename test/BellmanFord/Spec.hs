@@ -6,6 +6,9 @@ module BellmanFord.Spec
 )
 where
 
+--TMP
+import qualified EmptyGraph
+
 import qualified Util.QuickSmall                    as QS
 import qualified Util
 import           Data.Graph.Prelude
@@ -40,7 +43,15 @@ spec = Tasty.testGroup "BellmanFord"
        [ QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
        , QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
        ]
+    , Tasty.testGroup "removePaths"
+       [ QS.testProperty "terminates" removePathsTerminates
+       ]
     ]
+
+removePathsTerminates :: [TestEdge] -> Expectation
+removePathsTerminates edges = do
+    ST.stToIO $ EmptyGraph.removePaths edges (getFrom $ edges !! 0)
+    (0 :: Int) `shouldSatisfy` const True
 
 bellmanFord
     :: (Lib.WeightedEdge e v Double, Eq e, Show e, Show v)
