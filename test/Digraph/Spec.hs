@@ -69,8 +69,8 @@ addEdgesCheckInOutgoing
     -> Expectation
 addEdgesCheckInOutgoing edges = do
     let sortedEdges = sort edges
-    -- inserting edges in reverse order makes sure the *first* edge in "sortedEdges"
-    --  (going from/to same vertex) will be present in graph in the end
+    -- inserting edges in reverse order makes sure the *first* edge in "edges"
+    --  (in case of duplicate src/dst vertex) will be present in graph in the end
     graph <- stToIO $ Lib.fromEdges (reverse sortedEdges)
     outgoingEdges <- stToIO $ collectOutgoing graph
     sort (map Util.fromIdxEdge outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
