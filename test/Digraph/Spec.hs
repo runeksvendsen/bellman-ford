@@ -12,8 +12,8 @@ import qualified Util.QuickSmall                    as QS
 
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
-import           Data.List                          (sort, nubBy)
-import           Control.Monad.ST                   (RealWorld, stToIO)
+import           Data.List                          (groupBy, sortOn, sort)
+import           Control.Monad.ST                   (stToIO)
 
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations            (Expectation, shouldBe)
@@ -22,34 +22,74 @@ import qualified Test.Tasty                         as Tasty
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
-    [ Tasty.testGroup "insertEdge"
-       [ QS.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing $ \g vid -> stToIO $ Lib.outgoingEdges g vid)
+    [ Tasty.testGroup "removeEdge"
+       [ QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+       ]
+    , Tasty.testGroup "updateEdge"
+       [ QS.testProperty "updates edges present in 'outoingEdges'" updateEdges
+       ]
+    , Tasty.testGroup "insertEdge"
+       [ QS.testProperty "all edges present in 'outoingEdges'" addEdgesCheckInOutgoing
        ]
     , Tasty.testGroup "edgeCount"
        [ QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
        ]
     ]
 
-addEdgesCheckInOutgoing
-    :: (Lib.Digraph RealWorld String Double -> Lib.VertexId -> IO [Lib.IdxEdge String Double])
-    -> [TestEdge]
+addRemoveEdges
+    :: [TestEdge]
     -> Expectation
-addEdgesCheckInOutgoing inOutEdges edges = do
+addRemoveEdges edges = do
+    (graph, vertices) <- stToIO createRemove
+    forM_ vertices $ \vertex -> do
+        outEdges <- stToIO $ Lib.outgoingEdges graph vertex
+        length outEdges `shouldBe` 0
+  where
+    createRemove = do
+        graph <- Lib.fromEdges edges
+        outgoingEdges <- collectOutgoing graph
+        forM_ outgoingEdges (Lib.removeEdge graph)
+        vertices <- Lib.vertices graph
+        return (graph, vertices)
+
+updateEdges
+    :: [TestEdge]
+    -> IO ()
+updateEdges edges = do
+    graph <- stToIO $ Lib.fromEdges edges
+    outgoingEdges <- stToIO $ collectOutgoing graph
+    let outgoingEdges' = fmap (+1) <$> outgoingEdges
+    forM_ outgoingEdges' (stToIO . Lib.updateEdge graph)
+    updatedOutgoingEdges <- stToIO $ collectOutgoing graph
+    sort (fmap Lib.eMeta updatedOutgoingEdges) `shouldBe`
+        sort (map getWeight (removeDuplicateSrcDst $ map Util.fromIdxEdge outgoingEdges'))
+
+addEdgesCheckInOutgoing
+    :: [TestEdge]
+    -> Expectation
+addEdgesCheckInOutgoing edges = do
     let sortedEdges = sort edges
     -- inserting edges in reverse order makes sure the *first* edge in "sortedEdges"
     --  (going from/to same vertex) will be present in graph in the end
     graph <- stToIO $ Lib.fromEdges (reverse sortedEdges)
-    vertices <- stToIO $ Lib.vertices graph
-    outgoingEdges <- foldM (collectInOutgoing graph) [] vertices
-    sort (map Util.fromIdxEdge $ concat outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
+    outgoingEdges <- stToIO $ collectOutgoing graph
+    sort (map Util.fromIdxEdge outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
+
+removeDuplicateSrcDst :: [TestEdge] -> [TestEdge]
+removeDuplicateSrcDst =
+    map head . groupBy sameSrcDst . sortOn (\e -> (Lib.fromNode e, Lib.toNode e))
   where
-    collectInOutgoing graph accum vertex = do
-        outEdges <- inOutEdges graph vertex
+    srcDst e = (Lib.fromNode e, Lib.toNode e)
+    sameSrcDst edgeA edgeB = srcDst edgeA == srcDst edgeB
+
+collectOutgoing :: Lib.Digraph s v meta -> ST s [Lib.IdxEdge v meta]
+collectOutgoing graph = do
+    vertices <- Lib.vertices graph
+    concat <$> foldM lol [] vertices
+  where
+    lol accum vertex = do
+        outEdges <- Lib.outgoingEdges graph vertex
         return $ outEdges : accum
-    removeDuplicateSrcDst = nubBy sameSrcDst
-    sameSrcDst edgeA edgeB =
-        Lib.fromNode edgeA == Lib.fromNode edgeB &&
-        Lib.toNode edgeA == Lib.toNode edgeB
 
 edgeCountEqualsOutgoingCountForallVertices
     :: [TestEdge]
