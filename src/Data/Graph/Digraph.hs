@@ -103,7 +103,7 @@ updateEdge (Digraph _ vertexArray _) = insertEdge__ vertexArray
 -- -- | Remove an existing edge from the graph
 removeEdge
     :: Digraph s v meta
-    -> IdxEdge v meta
+    -> IdxEdge v a
     -> ST s ()
 removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
     outEdgeMap <- Arr.readArray vertexArray _eFromIdx
