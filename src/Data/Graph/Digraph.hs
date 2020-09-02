@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -5,7 +7,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.Digraph
-( Digraph
+( -- * Graph
+  Digraph
 , fromEdges
 , updateEdge
 , removeEdge
@@ -15,21 +18,73 @@ module Data.Graph.Digraph
 , vertexLabels
 , outgoingEdges
 , lookupVertex
-, VertexId(VertexId)
+  -- * Edge/vertex
+, VertexId
+, vidInt
+  -- NB: Export setter for the 'eMeta' record field
+  --  but only getters for the remaining record fields
+, IdxEdge
+, eMeta
+, eFrom
+, eTo
+, eFromIdx
+, eToIdx
+, HasWeight(..)
   -- * Re-exports
 , E.DirectedEdge(..)
-, module IdxEdge -- TODO: don't export constructor
 )
 where
 
 import Data.Graph.Prelude
 import qualified Data.Graph.Edge as E
-import Data.Graph.IdxEdge as IdxEdge
 
 import Data.List (sort, group)
 import qualified Data.Array.ST as Arr
 import qualified Data.HashTable.ST.Basic as HT
+import Data.Ix (Ix(..))
 
+------------------------------------------------------------------
+------------------  Edge with indexed vertices  ------------------
+------------------------------------------------------------------
+
+data IdxEdge v meta = IdxEdge
+    { eMeta     :: !meta
+    , _eFrom    :: !v
+    , _eTo      :: !v
+    , _eFromIdx :: {-# UNPACK #-} !VertexId
+    , _eToIdx   :: {-# UNPACK #-} !VertexId
+    } deriving (Eq, Show, Functor)
+
+instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
+   fromNode = _eFrom
+   toNode = _eTo
+   metaData = eMeta
+
+class HasWeight a weight | a -> weight where
+    weight :: a -> weight
+
+newtype VertexId = VertexId { _vidInt :: Int }
+    deriving (Eq, Show, Ord, Hashable, Ix)
+
+vidInt :: VertexId -> Int
+vidInt = _vidInt
+
+eFrom :: IdxEdge v meta -> v
+eFrom = _eFrom
+
+eTo :: IdxEdge v meta -> v
+eTo = _eTo
+
+eFromIdx :: IdxEdge v meta -> VertexId
+eFromIdx = _eFromIdx
+
+eToIdx :: IdxEdge v meta -> VertexId
+eToIdx = _eToIdx
+
+
+------------------------------------------------------------------
+----------------------------  Graph  -----------------------------
+------------------------------------------------------------------
 
 data Digraph s v meta = Digraph
                     -- vertex count
@@ -40,7 +95,7 @@ data Digraph s v meta = Digraph
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
 fromEdges
-    :: (Eq v, Ord v, Hashable v, DirectedEdge edge v meta)
+    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
     => [edge]   -- ^ (meta, from, to)
     -> ST s (Digraph s v meta)
 fromEdges edges = do
@@ -60,7 +115,7 @@ fromEdges edges = do
         map E.fromNode edges ++ map E.toNode edges
 
 insertEdge_
-    :: DirectedEdge edge v meta
+    :: E.DirectedEdge edge v meta
     => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> HT.HashTable s v VertexId
     -> edge

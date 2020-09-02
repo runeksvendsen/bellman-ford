@@ -23,11 +23,11 @@ import           Data.List                          (foldl')
 -- |
 data State s g v meta = State
     { -- | marked[v] = has vertex v been marked?
-      marked    :: ST.STUArray s (DG.VertexId) Bool
+      marked    :: ST.STUArray s Int Bool
       -- | edgeTo[v] = previous edge on path to v
-    , edgeTo    :: ST.STArray s (DG.VertexId) (Maybe (DG.IdxEdge v meta))
+    , edgeTo    :: ST.STArray s Int (Maybe (DG.IdxEdge v meta))
       -- | onStack[v] = is vertex on the stack?
-    , onStack   :: ST.STUArray s (DG.VertexId) Bool
+    , onStack   :: ST.STUArray s Int Bool
       -- | directed cycle (empty list = no cycle)
     , cycle     :: MV.MutVar s [DG.IdxEdge v meta]
     }
@@ -41,7 +41,7 @@ findCycle graph = do
     state <- initState graph
     vertices <- DG.vertices graph
     forM_ vertices $ \vertex ->
-        unlessM (Arr.readArray (marked state) vertex) $ dfs graph state vertex
+        unlessM (Arr.readArray (marked state) (DG.vidInt vertex)) $ dfs graph state vertex
     (`assert` ()) <$> check state
     MV.readMutVar (cycle state)
 
@@ -51,25 +51,25 @@ dfs :: (Show v, Hashable v)
     -> DG.VertexId             -- ^ Start vertex
     -> ST s ()
 dfs graph state vertex = do
-    Arr.writeArray (onStack state) vertex True
-    Arr.writeArray (marked state) vertex True
+    Arr.writeArray (onStack state) (DG.vidInt vertex) True
+    Arr.writeArray (marked state) (DG.vidInt vertex) True
     -- Iterate over outgoing edges
     DG.outgoingEdges graph vertex >>= mapM_ handleEdge
-    Arr.writeArray (onStack state) vertex False
+    Arr.writeArray (onStack state) (DG.vidInt vertex) False
   where
     handleEdge edge =
         unlessM (hasCycle state) $ do
             let w = DG.eToIdx edge
-            wMarked <- Arr.readArray (marked state) w
+            wMarked <- Arr.readArray (marked state) (DG.vidInt w)
             if not wMarked
                 then do
                     -- found new vertex, so recur
-                    Arr.writeArray (edgeTo state) w (Just edge)
+                    Arr.writeArray (edgeTo state) (DG.vidInt w) (Just edge)
                     dfs graph state w
                 else
                     -- trace back directed cycle
-                    whenM (Arr.readArray (onStack state) w) $
-                        traceBackCycle state w edge
+                    whenM (Arr.readArray (onStack state) (DG.vidInt w)) $
+                        traceBackCycle state (DG.vidInt w) edge
                             >>= MV.writeMutVar (cycle state)
 
 -- | Trace back a cycle by starting from the last edge in the cycle,
@@ -79,7 +79,7 @@ traceBackCycle
     :: forall s g v meta.
        (Hashable v, Show v)
     => State s g v meta          -- ^ State
-    -> DG.VertexId          -- ^ DG.VertexId where cycle ends (and starts)
+    -> Int          -- ^ Int where cycle ends (and starts)
     -> DG.IdxEdge v meta                    -- ^ The last edge of the cycle
     -> ST s [DG.IdxEdge v meta]
 traceBackCycle state startVertex lastEdge =
@@ -87,7 +87,7 @@ traceBackCycle state startVertex lastEdge =
   where
     go :: NE.NonEmpty (DG.IdxEdge v meta) -> ST s [DG.IdxEdge v meta]
     go accum@(edge NE.:| _) = do
-        let fromVertex = DG.eFromIdx edge
+        let fromVertex = DG.vidInt $ DG.eFromIdx edge
         if fromVertex /= startVertex
             then do
                 newEdgeM <- Arr.readArray (edgeTo state) fromVertex
@@ -106,12 +106,12 @@ initState
     :: DG.Digraph s v meta   -- ^ Graph
     -> ST s (State s g v meta)   -- ^ Initialized state
 initState graph = do
-    vertexCount <- DG.VertexId . fromIntegral <$> DG.vertexCount graph
+    vertexCount <- fromIntegral <$> DG.vertexCount graph
     state <- State
-        <$> Arr.newArray (DG.VertexId 0, vertexCount) False      -- marked
-        <*> Arr.newArray (DG.VertexId 0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (DG.VertexId 0, vertexCount) False      -- onStack
-        <*> MV.newMutVar []                                 -- cycle
+        <$> Arr.newArray (0, vertexCount) False      -- marked
+        <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
+        <*> Arr.newArray (0, vertexCount) False      -- onStack
+        <*> MV.newMutVar []                          -- cycle
     return state
 
 -- certify that digraph is either acyclic or has a directed cycle
