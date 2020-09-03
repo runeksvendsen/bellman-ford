@@ -23,3 +23,4 @@ main =
     mkLocalOption scDepth =
         Tasty.localOption (SC.SmallCheckDepth scDepth) .
         Tasty.localOption (QC.QuickCheckTests 200)
+    somethingWrong = "hello" :: Int
