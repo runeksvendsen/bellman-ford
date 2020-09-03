@@ -202,14 +202,9 @@ findNegativeCycle
 findNegativeCycle = do
     state    <- R.asks sMState
     spEdges  <- R.lift $ Arr.getElems (edgeTo state)
-    let edges = catMaybes spEdges
-    sptGraph <- mkSptGraph edges
-    R.lift $ C.findCycle sptGraph (getVertices edges) >>= MV.writeMutVar (cycle state)
+    sptGraph <- mkSptGraph (catMaybes spEdges)
+    R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
   where
-    -- We only need to go handle the vertices connected to an edge.
-    -- Due to cloning the graph, 'DG.vertices' will return -- potentially -- many
-    --  unconnected vertices.
-    getVertices edges = U.nubOrd $ map DG.eFromIdx edges ++ map DG.eToIdx edges
     mkSptGraph spEdges = do
         graph <- getGraph
         sptGraph <- R.lift $ DG.emptyClone graph
