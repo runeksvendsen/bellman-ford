@@ -93,7 +93,7 @@ data Digraph s v meta = Digraph
     {-# UNPACK #-} !Int
                     -- vertexId -> (dstVertexId -> outgoingEdge)
     {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
-                    -- v -> vid
+                    -- v -> vertexId
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
 fromEdges
