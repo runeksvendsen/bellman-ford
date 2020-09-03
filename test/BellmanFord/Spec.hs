@@ -6,9 +6,6 @@ module BellmanFord.Spec
 )
 where
 
---TMP
-import qualified EmptyGraph
-
 import qualified Util.QuickSmall                    as QS
 import qualified Util
 import           Data.Graph.Prelude
@@ -96,5 +93,9 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
   where
     weightCombFun weight edge = weight + Lib.weight edge
 
+fromShuffledEdges
+    :: (Ord v, Lib.DirectedEdge edge v meta)
+    => [edge]
+    -> IO (Lib.Digraph RealWorld v meta)
 fromShuffledEdges edges =
     Shuffle.shuffleM edges >>= ST.stToIO . Lib.fromEdges
