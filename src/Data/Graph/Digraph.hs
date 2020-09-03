@@ -39,8 +39,8 @@ where
 
 import Data.Graph.Prelude
 import qualified Data.Graph.Edge as E
+import qualified Data.Graph.Util as U
 
-import Data.List (sort, group)
 import qualified Data.Array.ST as Arr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
@@ -113,8 +113,7 @@ fromEdges edges = do
     return $ Digraph vertexCount' vertexArray indexMap
   where
     vertexCount' = length uniqueVertices
-    uniqueVertices = map head . group . sort $
-        map E.fromNode edges ++ map E.toNode edges
+    uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
 
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.

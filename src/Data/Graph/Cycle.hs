@@ -36,10 +36,10 @@ data State s g v meta = State
 findCycle
     :: (Show v, Eq v, Hashable v, Show meta)
     => DG.Digraph s v meta
+    -> [DG.VertexId]
     -> ST s [DG.IdxEdge v meta]
-findCycle graph = do
+findCycle graph vertices = do
     state <- initState graph
-    vertices <- DG.vertices graph
     forM_ vertices $ \vertex ->
         unlessM (Arr.readArray (marked state) (DG.vidInt vertex)) $ dfs graph state vertex
     (`assert` ()) <$> check state

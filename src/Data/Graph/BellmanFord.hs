@@ -116,7 +116,7 @@ bellmanFord src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     resetState state    -- HACK: make things work for now before algorithm is improved
-    srcVertex <- R.lift (U.lookupVertex graph src)
+    srcVertex <- R.lift (lookupVertex graph src)
     R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) 0.0
     R.lift $ enqueueVertex state srcVertex
     go state
@@ -141,7 +141,7 @@ pathTo target = do
     state <- R.asks sMState
     -- Check for negative cycle
     negativeCycle >>= maybe (return ()) failNegativeCycle
-    targetVertex <- DG.vidInt <$> R.lift (U.lookupVertex graph target)
+    targetVertex <- DG.vidInt <$> R.lift (lookupVertex graph target)
     pathExists <- R.lift $ hasPathTo state targetVertex
     R.lift $ if pathExists
         then Just <$> go graph state [] targetVertex
@@ -202,9 +202,14 @@ findNegativeCycle
 findNegativeCycle = do
     state    <- R.asks sMState
     spEdges  <- R.lift $ Arr.getElems (edgeTo state)
-    sptGraph <- mkSptGraph (catMaybes spEdges)
-    R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
+    let edges = catMaybes spEdges
+    sptGraph <- mkSptGraph edges
+    R.lift $ C.findCycle sptGraph (getVertices edges) >>= MV.writeMutVar (cycle state)
   where
+    -- We only need to go handle the vertices connected to an edge.
+    -- Due to cloning the graph, 'DG.vertices' will return -- potentially -- many
+    --  unconnected vertices.
+    getVertices edges = U.nubOrd $ map DG.eFromIdx edges ++ map DG.eToIdx edges
     mkSptGraph spEdges = do
         graph <- getGraph
         sptGraph <- R.lift $ DG.emptyClone graph
@@ -325,3 +330,13 @@ check source = do
                     distToW <- Arr.readArray (distTo state) w
                     when (calcWeight distToV (DG.eMeta e) /= distToW) $
                         error $ "edge " ++ show e ++ " on shortest path not tight"
+
+-- Util
+
+lookupVertex
+    :: (Eq v, Hashable v, Show v)
+    => DG.Digraph s v meta
+    -> v
+    -> ST s DG.VertexId
+lookupVertex graph v =
+    fromMaybe (error $ "Vertex not found: " ++ show v) <$> DG.lookupVertex graph v
