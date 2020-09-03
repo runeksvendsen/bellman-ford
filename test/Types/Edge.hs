@@ -10,7 +10,6 @@ module Types.Edge
 where
 
 import           Data.Graph.Digraph                   as Lib
-import           Data.Graph.Edge                      as Lib
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 

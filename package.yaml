@@ -25,7 +25,6 @@ library:
   - array
   - mutable-containers  # Deque
   - vector              # MVector
-  - impure-containers
   - primitive
   - hashable
   - mtl

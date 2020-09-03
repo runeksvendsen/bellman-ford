@@ -17,7 +17,6 @@ where
 
 import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
-import qualified Data.Graph.Util                    as U
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import qualified Data.Graph.Cycle                   as C
