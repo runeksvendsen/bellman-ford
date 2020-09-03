@@ -6,14 +6,12 @@ module BellmanFord.Spec
 )
 where
 
---TMP
-import qualified EmptyGraph
-
 import qualified Util.QuickSmall                    as QS
 import qualified Util
 import           Data.Graph.Prelude
 import           Types.Edge
 import           Types.Cycle
+import qualified EmptyGraph
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
