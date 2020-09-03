@@ -1,17 +1,10 @@
 module Data.Graph.Util
-( lookupVertex
+( nubOrd
 ) where
 
-import           Prelude
-import           Data.Graph.Prelude
-import qualified Data.Graph.Digraph                 as DG
-import qualified Data.Graph.Types.Internal          as GI
+import Data.List (group, sort)
 
-
-lookupVertex
-    :: (PrimMonad m, Eq v, Hashable v, Show v)
-    => DG.Digraph (PrimState m) g e v
-    -> v
-    -> m (GI.Vertex g)
-lookupVertex graph v =
-    fromMaybe (error $ "Vertex not found: " ++ show v) <$> DG.lookupVertex graph v
+-- | Faster version of 'Data.List.nub'.
+--   O(n log n) instead of O(n^2), but requires 'Ord' instance.
+nubOrd :: Ord a => [a] -> [a]
+nubOrd = map head . group . sort

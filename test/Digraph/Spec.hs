@@ -6,19 +6,18 @@ module Digraph.Spec
 )
 where
 
-import           Digraph.Types                      (ModifyGraph(..), modify)
 import           Types.Edge
+import qualified Util
 import qualified Util.QuickSmall                    as QS
 
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
-import           Data.List                          (sort, nubBy)
-import           Control.Monad.ST                   (RealWorld)
+import           Data.List                          (groupBy, sortOn, sort)
+import           Control.Monad.ST                   (stToIO)
 
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations            (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
-import           Test.Tasty.SmallCheck              as SC
 
 
 spec :: Tasty.TestTree
@@ -26,83 +25,87 @@ spec = Tasty.testGroup "Digraph" $
     [ Tasty.testGroup "removeEdge"
        [ QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
        ]
+    , Tasty.testGroup "updateEdge"
+       [ QS.testProperty "updates edges present in 'outgoingEdges'" updateEdges
+       ]
     , Tasty.testGroup "insertEdge"
-       [ QS.testProperty "all edges present in 'outoingEdges'" (addEdgesCheckInOutgoing Lib.outgoingEdges)
-       , QS.testProperty "all edges present in 'incomingEdges'" (addEdgesCheckInOutgoing Lib.incomingEdges)
+       [ QS.testProperty "all edges present in 'outgoingEdges'" addEdgesCheckInOutgoing
        ]
     , Tasty.testGroup "edgeCount"
        [ QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
        ]
-    , Tasty.localOption (SC.SmallCheckDepth 4) $
-      Tasty.testGroup "outgoing/incoming edges"
-      [ QS.testProperty "the same after random inserts/removals" incomingShouldBeOutgoing
-      ]
     ]
 
 addRemoveEdges
     :: [TestEdge]
     -> Expectation
 addRemoveEdges edges = do
-    graph <- Lib.fromEdges edges
-    forM_ edges (Lib.removeEdge graph)
-    vertices <- Lib.vertices graph
+    (graph, vertices) <- stToIO createRemove
     forM_ vertices $ \vertex -> do
-        outEdges <- Lib.outgoingEdges graph vertex
+        outEdges <- stToIO $ Lib.outgoingEdges graph vertex
         length outEdges `shouldBe` 0
+  where
+    createRemove = do
+        graph <- Lib.fromEdges edges
+        outgoingEdges <- collectOutgoing graph
+        forM_ outgoingEdges (Lib.removeEdge graph)
+        vertices <- Lib.vertices graph
+        return (graph, vertices)
+
+updateEdges
+    :: [TestEdge]
+    -> IO ()
+updateEdges edges = do
+    graph <- stToIO $ Lib.fromEdges edges
+    outgoingEdges <- stToIO $ collectOutgoing graph
+    let outgoingEdges' = fmap (+1) <$> outgoingEdges
+    forM_ outgoingEdges' (stToIO . Lib.updateEdge graph)
+    updatedOutgoingEdges <- stToIO $ collectOutgoing graph
+    sort (fmap Lib.eMeta updatedOutgoingEdges) `shouldBe`
+        sort (map getWeight (removeDuplicateSrcDst $ map Util.fromIdxEdge outgoingEdges'))
 
 addEdgesCheckInOutgoing
-    :: (Lib.Digraph RealWorld () TestEdge String -> Lib.Vertex () -> IO [TestEdge])
-    -> [TestEdge]
+    :: [TestEdge]
     -> Expectation
-addEdgesCheckInOutgoing inOutEdges edges = do
+addEdgesCheckInOutgoing edges = do
     let sortedEdges = sort edges
-    -- inserting edges in reverse order makes sure the *first* edge in "sortedEdges"
-    --  (going from/to same vertex) will be present in graph in the end
-    graph <- Lib.fromEdges (reverse sortedEdges)
-    vertices <- Lib.vertices graph
-    outgoingEdges <- foldM (collectInOutgoing graph) [] vertices
-    sort (concat outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
-  where
-    collectInOutgoing graph accum vertex = do
-        outEdges <- inOutEdges graph vertex
-        return $ outEdges : accum
-    removeDuplicateSrcDst = nubBy sameSrcDst
-    sameSrcDst edgeA edgeB =
-        getFrom edgeA == getFrom edgeB &&
-        getTo edgeA == getTo edgeB
+    -- inserting edges in reverse order makes sure the *first* edge in "edges"
+    --  (in case of duplicate src/dst vertex) will be present in graph in the end
+    graph <- stToIO $ Lib.fromEdges (reverse sortedEdges)
+    outgoingEdges <- stToIO $ collectOutgoing graph
+    sort (map Util.fromIdxEdge outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
 
-incomingShouldBeOutgoing
-    :: [ModifyGraph (Unweighted TestEdge)]
-    -> Expectation
-incomingShouldBeOutgoing modifyGraphsUnweighted = do
-    let modifyGraphs = map (fmap unweighted) modifyGraphsUnweighted
-    (outEdges, inEdges) <- Lib.withGraph $ \graph -> do
-        forM_ modifyGraphs (modify graph)
-        vertices <- Lib.vertices graph
-        outEdges <- foldM (collectInOutgoing Lib.outgoingEdges graph) [] vertices
-        inEdges <- foldM (collectInOutgoing Lib.incomingEdges graph) [] vertices
-        return (concat outEdges, concat inEdges)
-    sort outEdges `shouldBe` sort inEdges
+removeDuplicateSrcDst :: [TestEdge] -> [TestEdge]
+removeDuplicateSrcDst =
+    map head . groupBy sameSrcDst . sortOn (\e -> (Lib.fromNode e, Lib.toNode e))
   where
-    collectInOutgoing inOutEdges graph accum vertex =
-        (: accum) <$> inOutEdges graph vertex
+    srcDst e = (Lib.fromNode e, Lib.toNode e)
+    sameSrcDst edgeA edgeB = srcDst edgeA == srcDst edgeB
+
+collectOutgoing :: Lib.Digraph s v meta -> ST s [Lib.IdxEdge v meta]
+collectOutgoing graph = do
+    vertices <- Lib.vertices graph
+    concat <$> foldM collect [] vertices
+  where
+    collect accum vertex = do
+        outEdges <- Lib.outgoingEdges graph vertex
+        return $ outEdges : accum
 
 edgeCountEqualsOutgoingCountForallVertices
     :: [TestEdge]
     -> Expectation
 edgeCountEqualsOutgoingCountForallVertices edges = do
-    graph <- Lib.fromEdges edges
-    edgeCountLib      <- Lib.edgeCount graph
-    edgeCountOutgoing <- edgeCountTest graph
+    graph <- stToIO $ Lib.fromEdges edges
+    edgeCountLib      <- stToIO $ Lib.edgeCount graph
+    edgeCountOutgoing <- stToIO $ edgeCountTest graph
     edgeCountLib `shouldBe` edgeCountOutgoing
 
 -- | Count of the number of edges in the graph
 --    by counting all outgoing edges for all vertices returned by 'Lib.vertices'.
 --   Should always return the same as 'Lib.edgeCount'.
 edgeCountTest
-    :: (PrimMonad m)
-    => Lib.Digraph (PrimState m) g e v  -- ^ Graph
-    -> m Word                           -- ^ Edge count
+    :: Lib.Digraph s v meta -- ^ Graph
+    -> ST s Word            -- ^ Edge count
 edgeCountTest dg =
     Lib.vertices dg >>= foldM lookupCount 0
   where

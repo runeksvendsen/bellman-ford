@@ -9,3 +9,4 @@ import Data.Hashable                as Export (Hashable)
 import Control.Monad.Primitive      as Export (PrimMonad, PrimState)
 import Text.Printf                  as Export
 import Control.Exception            as Export (assert)
+import Control.Monad.ST             as Export

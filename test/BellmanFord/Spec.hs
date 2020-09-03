@@ -14,6 +14,7 @@ import qualified Util
 import           Data.Graph.Prelude
 import           Types.Edge
 import           Types.Cycle
+import qualified EmptyGraph
 import qualified Data.Graph.Digraph                 as Lib
 import qualified Data.Graph.BellmanFord             as Lib
 
@@ -54,13 +55,13 @@ removePathsTerminates edges = do
     (0 :: Int) `shouldSatisfy` const True
 
 bellmanFord
-    :: (Lib.WeightedEdge e v Double, Eq e, Show e, Show v)
+    :: (Lib.HasWeight a Double, Show a, Show v, Lib.DirectedEdge edge v a, Ord v, Eq a)
     => (Double -> Double -> Double)
-    -> [e]
-    -> Expectation
+    -> [edge]
+    -> IO ()
 bellmanFord combine edges = do
     graph <- fromShuffledEdges edges
-    vertices <- Lib.vertexLabels graph
+    vertices <- ST.stToIO $ Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source ->
         Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) $
             Lib.bellmanFord source
@@ -74,8 +75,9 @@ findsNegativeCycle
     -> NegativeCycle
     -> Expectation
 findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
-    graph <- fromShuffledEdges (map positiveWeight positiveEdges)
-    mapM_ (Lib.insertEdge graph) =<< Shuffle.shuffleM (NE.toList cycleEdges)
+    shuffledPositiveEdges <- Shuffle.shuffleM (map positiveWeight positiveEdges)
+    shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges)
+    graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
     negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun $ do
@@ -90,9 +92,9 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
                     ]
             in expectationFailure $ printf errFormatStr (show cycleEdges) (show positiveEdges)
         Just returnedCycle ->
-            NE.toList returnedCycle `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges)
+            map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges)
   where
     weightCombFun weight edge = weight + Lib.weight edge
 
 fromShuffledEdges edges =
-    Shuffle.shuffleM edges >>= Lib.fromEdges
+    Shuffle.shuffleM edges >>= ST.stToIO . Lib.fromEdges
