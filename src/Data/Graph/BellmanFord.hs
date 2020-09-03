@@ -204,6 +204,14 @@ findNegativeCycle = do
     sptGraph <- mkSptGraph (catMaybes spEdges)
     R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
   where
+    -- NB: If we were to create a new graph from the shortest-path edges
+    --  using 'DG.fromEdges', then these edges would be re-indexed, and thus have
+    --  different indices than the edges in 'sGraph'. This would cause 'negativeCycle'
+    --  to return edges with incorrect indices.
+    -- This potential bug could be prevented by adding an ST-style phantom
+    --  type variable to 'DG.Digraph' and exposing only a @runGraph@ function
+    --  in style of e.g. 'Data.Array.ST.runSTArray'. However, this approach has
+    --  not been adopted due to the added complexity.
     mkSptGraph spEdges = do
         graph <- getGraph
         sptGraph <- R.lift $ DG.emptyClone graph

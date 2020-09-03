@@ -204,6 +204,10 @@ vertices (Digraph vc _ _) =
     return vertexIdList
   where
     vertexIdList = map VertexId [0..vc-1]
+    -- NB: If @vc@ equals zero (in case of an empty list passed to 'fromEdges')
+    --  and it had the type 'Word', then @vc-1@ would evaluate to 'maxBound'.
+    -- Thus @[0..vc-1]@ would produce a list of length 2^32 or 2^64 (depending
+    --  on CPU word size).
 
 -- | All the vertex labels in the graph
 vertexLabels
