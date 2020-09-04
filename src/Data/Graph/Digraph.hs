@@ -18,6 +18,7 @@ module Data.Graph.Digraph
 , vertexLabels
 , outgoingEdges
 , lookupVertex
+, clone
   -- * Edge/vertex
 , VertexId
 , vidInt
@@ -114,6 +115,22 @@ fromEdges edges = do
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+
+-- | Return a copy of the input graph.
+clone
+    :: forall s v meta.
+       Digraph s v meta
+    -> ST s (Digraph s v meta)
+clone (Digraph vc vertexArray indexMap) = do
+    emptyMaps <- sequence $ replicate vc HT.new
+    let range' = (VertexId 0, VertexId (vc - 1))
+    newVertexArray <- Arr.newListArray range' emptyMaps
+    outEdgeMapList <- mapM (Arr.readArray vertexArray) (range range')
+    forM_ (zip emptyMaps outEdgeMapList) copyTable
+    -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
+    return $ Digraph vc newVertexArray indexMap
+  where
+    copyTable (emptyTable, table) = HT.foldM (\_ (k,v) -> HT.insert emptyTable k v) () table
 
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.
