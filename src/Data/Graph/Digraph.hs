@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -18,6 +19,9 @@ module Data.Graph.Digraph
 , vertexLabels
 , outgoingEdges
 , lookupVertex
+, freeze
+, thaw
+, IDigraph
   -- * Edge/vertex
 , VertexId
 , vidInt
@@ -38,10 +42,12 @@ module Data.Graph.Digraph
 where
 
 import Data.Graph.Prelude
+import Protolude (NFData(rnf), Generic)
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
 import qualified Data.Array.ST as Arr
+import qualified Data.Array.IArray as IArr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
 
@@ -55,7 +61,9 @@ data IdxEdge v meta = IdxEdge
     , _eTo      :: !v
     , _eFromIdx :: {-# UNPACK #-} !VertexId
     , _eToIdx   :: {-# UNPACK #-} !VertexId
-    } deriving (Eq, Show, Functor)
+    } deriving (Eq, Show, Functor, Generic)
+
+instance (NFData v, NFData meta) => NFData (IdxEdge v meta)
 
 instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
    fromNode = _eFrom
@@ -66,7 +74,7 @@ class HasWeight a weight | a -> weight where
     weight :: a -> weight
 
 newtype VertexId = VertexId { _vidInt :: Int }
-    deriving (Eq, Show, Ord, Hashable, Ix)
+    deriving (Eq, Show, Ord, Hashable, Ix, NFData)
 
 vidInt :: VertexId -> Int
 vidInt = _vidInt
@@ -114,6 +122,40 @@ fromEdges edges = do
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+
+-- | An immutable form of 'Digraph'
+data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
+
+instance (NFData v, NFData meta) => NFData (IDigraph v meta) where
+    rnf (IDigraph vc vertexArray indexMap) =
+        rnf vc `seq`
+        rnf (IArr.assocs vertexArray) `seq`
+        rnf indexMap
+
+-- | Convert a mutable graph into an immutable graph.
+freeze
+    :: Digraph s v meta
+    -> ST s (IDigraph v meta)
+freeze (Digraph vc vertexArray indexMap) = do
+    frozenArray <- Arr.freeze vertexArray
+    kvArray <- sequence $ fmap keyValueSet frozenArray
+    kvSet <- keyValueSet indexMap
+    return $ IDigraph vc kvArray kvSet
+
+-- | Convert an immutable graph into an mutable graph.
+thaw
+    :: (Eq v, Hashable v)
+    => IDigraph v meta
+    -> ST s (Digraph s v meta)
+thaw (IDigraph vc frozenArray indexKv) = do
+    htArray <- sequence $ fmap fromKvSet frozenArray
+    vertexArray <- Arr.thaw htArray
+    indexMap <- fromKvSet indexKv
+    return $ Digraph vc vertexArray indexMap
+  where
+    fromKvSet kvSet = do
+        ht <- HT.new
+        foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht kvSet
 
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.
@@ -238,3 +280,10 @@ valueSet
     -> ST s [v]
 valueSet =
     HT.foldM (\accum (_, v) -> return $ v : accum) []
+
+-- | Set of map values
+keyValueSet
+    :: HT.HashTable s k v
+    -> ST s [(k,v)]
+keyValueSet =
+    HT.foldM (\accum kv -> return $ kv : accum) []
