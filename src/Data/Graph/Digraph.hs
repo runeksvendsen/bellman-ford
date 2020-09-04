@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -41,6 +42,7 @@ module Data.Graph.Digraph
 where
 
 import Data.Graph.Prelude
+import Protolude (NFData(rnf), Generic)
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
@@ -59,7 +61,9 @@ data IdxEdge v meta = IdxEdge
     , _eTo      :: !v
     , _eFromIdx :: {-# UNPACK #-} !VertexId
     , _eToIdx   :: {-# UNPACK #-} !VertexId
-    } deriving (Eq, Show, Functor)
+    } deriving (Eq, Show, Functor, Generic)
+
+instance (NFData v, NFData meta) => NFData (IdxEdge v meta)
 
 instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
    fromNode = _eFrom
@@ -70,7 +74,7 @@ class HasWeight a weight | a -> weight where
     weight :: a -> weight
 
 newtype VertexId = VertexId { _vidInt :: Int }
-    deriving (Eq, Show, Ord, Hashable, Ix)
+    deriving (Eq, Show, Ord, Hashable, Ix, NFData)
 
 vidInt :: VertexId -> Int
 vidInt = _vidInt
@@ -121,6 +125,12 @@ fromEdges edges = do
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
+
+instance (NFData v, NFData meta) => NFData (IDigraph v meta) where
+    rnf (IDigraph vc vertexArray indexMap) =
+        rnf vc `seq`
+        rnf (IArr.assocs vertexArray) `seq`
+        rnf indexMap
 
 -- | Convert a mutable graph into an immutable graph.
 freeze
