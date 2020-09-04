@@ -1,0 +1,85 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 759d58679786c8f154018b6ef7a3b8cd5f1453d2a2bdde986775fb2e587fab00
+
+name:           bellman-ford
+version:        0.1.0.0
+category:       value
+homepage:       https://github.com/runeksvendsen/bellman-ford#readme
+author:         Rune K. Svendsen
+maintainer:     runesvend@gmail.com
+copyright:      CC0
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+library
+  exposed-modules:
+      Data.Graph.BellmanFord
+      Data.Graph.Cycle
+      Data.Graph.Digraph
+      Data.Graph.Edge
+      Data.Graph.Prelude
+      Data.Graph.Util
+      Data.Queue
+      Data.Stack
+  other-modules:
+      Paths_bellman_ford
+  hs-source-dirs:
+      src
+  default-extensions: FlexibleContexts
+  ghc-options: -Wall
+  build-depends:
+      array
+    , base >=4.7 && <5
+    , deepseq
+    , hashable
+    , hashtables
+    , mtl
+    , mutable-containers
+    , primitive
+    , protolude
+    , transformers
+    , vector
+  default-language: Haskell2010
+
+test-suite bellman-ford-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      BellmanFord.Spec
+      Digraph.Spec
+      EmptyGraph
+      Queue.Spec
+      Types.Cycle
+      Types.Edge
+      Types.ListWithItem
+      Util
+      Util.GenData
+      Util.QuickSmall
+      Util.Spec
+      Paths_bellman_ford
+  hs-source-dirs:
+      test
+  default-extensions: FlexibleContexts
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -fno-ignore-asserts
+  build-depends:
+      MonadRandom
+    , base >=4.7 && <5
+    , bellman-ford
+    , hspec-expectations
+    , hspec-smallcheck
+    , primitive
+    , random-shuffle
+    , smallcheck
+    , tasty
+    , tasty-quickcheck
+    , tasty-smallcheck
+    , transformers
+  default-language: Haskell2010
