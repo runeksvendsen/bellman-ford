@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -funbox-strict-fields #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Data.Graph.BellmanFord
 ( -- * Monad

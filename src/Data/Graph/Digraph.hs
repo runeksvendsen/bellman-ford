@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -funbox-strict-fields #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -50,11 +52,11 @@ import Data.Ix (Ix(..))
 ------------------------------------------------------------------
 
 data IdxEdge v meta = IdxEdge
-    { eMeta     :: !meta
-    , _eFrom    :: !v
-    , _eTo      :: !v
-    , _eFromIdx :: {-# UNPACK #-} !VertexId
-    , _eToIdx   :: {-# UNPACK #-} !VertexId
+    { eMeta     :: {-# NOUNPACK #-} !meta
+    , _eFrom    :: {-# NOUNPACK #-} !v
+    , _eTo      :: {-# NOUNPACK #-} !v
+    , _eFromIdx :: VertexId
+    , _eToIdx   :: VertexId
     } deriving (Eq, Show, Functor)
 
 instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
@@ -89,12 +91,12 @@ eToIdx = _eToIdx
 ------------------------------------------------------------------
 
 data Digraph s v meta = Digraph
-                    -- vertex count
-    {-# UNPACK #-} !Int
-                    -- vertexId -> (dstVertexId -> outgoingEdge)
-    {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
-                    -- v -> vertexId
-    {-# UNPACK #-} !(HT.HashTable s v VertexId)
+    -- Vertex count
+    Int
+    -- vertexId -> (dstVertexId -> outgoingEdge)
+    (Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
+    -- v -> vertexId
+    (HT.HashTable s v VertexId)
 
 fromEdges
     :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
