@@ -157,8 +157,6 @@ thaw (IDigraph vc frozenArray indexKv) = do
         ht <- HT.new
         foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht kvSet
 
-
-
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.
 emptyClone
