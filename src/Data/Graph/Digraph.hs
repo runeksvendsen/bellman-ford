@@ -41,7 +41,7 @@ import Data.Graph.Prelude
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
-import qualified Data.Array.ST as Arr
+import qualified Data.Array.IArray as Arr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
 
@@ -92,7 +92,7 @@ data Digraph s v meta = Digraph
                     -- vertex count
     {-# UNPACK #-} !Int
                     -- vertexId -> (dstVertexId -> outgoingEdge)
-    {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
+    {-# UNPACK #-} !(Arr.Array VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
                     -- v -> vertexId
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
@@ -107,7 +107,7 @@ fromEdges edges = do
     forM_ (zip uniqueVertices [0..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
     -- Initialize vertex array
     outEdgeMapList <- sequence $ replicate vertexCount' HT.new
-    vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
+    let vertexArray = Arr.listArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
     -- Populate vertex array
     mapM_ (insertEdge_ vertexArray indexMap) edges
     return $ Digraph vertexCount' vertexArray indexMap
@@ -123,20 +123,20 @@ emptyClone
     -> ST s (Digraph s v meta)
 emptyClone (Digraph vc _ indexMap) = do
     emptyMaps <- sequence $ replicate vc HT.new
-    newVertexArray <- Arr.newListArray (VertexId 0, VertexId (vc - 1)) emptyMaps
+    let newVertexArray = Arr.listArray (VertexId 0, VertexId (vc - 1)) emptyMaps
     -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
     return $ Digraph vc newVertexArray indexMap
 
 insertEdge_
     :: E.DirectedEdge edge v meta
-    => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    => Arr.Array VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> HT.HashTable s v VertexId
     -> edge
     -> ST s ()
 insertEdge_ vertexArray indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
-    outEdgeMap <- Arr.readArray vertexArray fromIdx
+    let outEdgeMap = vertexArray Arr.! fromIdx
     let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
     HT.insert outEdgeMap toIdx idxEdge
   where
@@ -154,11 +154,11 @@ lookupVertex (Digraph _ _ indexMap) vertex = do
     HT.lookup indexMap vertex
 
 insertEdge__
-    :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    :: Arr.Array VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> IdxEdge v meta
     -> ST s ()
 insertEdge__ vertexArray idxEdge@IdxEdge{..} = do
-    outEdgeMap <- Arr.readArray vertexArray _eFromIdx
+    let outEdgeMap = vertexArray Arr.! _eFromIdx
     HT.insert outEdgeMap _eToIdx idxEdge
 
 -- Overwrite an existing edge in the graph
@@ -174,7 +174,7 @@ removeEdge
     -> IdxEdge v a
     -> ST s ()
 removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
-    outEdgeMap <- Arr.readArray vertexArray _eFromIdx
+    let outEdgeMap = vertexArray Arr.! _eFromIdx
     HT.delete outEdgeMap _eToIdx
 
 -- -- | Count of the number of vertices in the graph
@@ -189,7 +189,7 @@ edgeCount
     -> ST s Word
 edgeCount dg@(Digraph _ vertexArray _) = do
     vertexIdList <- vertices dg
-    outEdgeMapList <- mapM (Arr.readArray vertexArray) vertexIdList
+    let outEdgeMapList = map (vertexArray Arr.!) vertexIdList
     countList <- mapM countEdges outEdgeMapList
     return $ sum countList
   where
@@ -222,7 +222,7 @@ outgoingEdges
     -> VertexId
     -> ST s [IdxEdge v meta]
 outgoingEdges (Digraph _ vertexArray _) vid = do
-    outEdgeMap <- Arr.readArray vertexArray vid
+    let outEdgeMap = vertexArray Arr.! vid
     valueSet outEdgeMap
 
 -- | Set of map keys
