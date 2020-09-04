@@ -164,7 +164,7 @@ hasPathTo state target =
 
 -- |
 relax
-    :: (Show v, Ord v, Hashable v, Show meta)
+    :: (Show v, Ord v, Hashable v, Show meta, DG.HasWeight meta Double)
     => DG.VertexId
     -> BF s v meta ()
 relax vertex = do
@@ -196,7 +196,7 @@ relax vertex = do
                 findNegativeCycle
 
 findNegativeCycle
-    :: (Ord v, Show v, Show meta, Hashable v)
+    :: (Ord v, Show v, Show meta, Hashable v, DG.HasWeight meta Double)
     => BF s v meta ()
 findNegativeCycle = do
     state    <- R.asks sMState

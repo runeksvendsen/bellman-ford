@@ -94,7 +94,7 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     weightCombFun weight edge = weight + Lib.weight edge
 
 fromShuffledEdges
-    :: (Ord v, Lib.DirectedEdge edge v meta)
+    :: (Ord v, Lib.WeightedEdge edge v meta Double)
     => [edge]
     -> IO (Lib.Digraph RealWorld v meta)
 fromShuffledEdges edges =

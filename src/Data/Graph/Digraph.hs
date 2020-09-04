@@ -30,6 +30,7 @@ module Data.Graph.Digraph
 , eFromIdx
 , eToIdx
 , HasWeight(..)
+, WeightedEdge
   -- * Internal
 , emptyClone
   -- * Re-exports
@@ -55,6 +56,7 @@ data IdxEdge v meta = IdxEdge
     , _eTo      :: !v
     , _eFromIdx :: {-# UNPACK #-} !VertexId
     , _eToIdx   :: {-# UNPACK #-} !VertexId
+    , _eWeight  :: {-# UNPACK #-} !Double
     } deriving (Eq, Show, Functor)
 
 instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
@@ -97,7 +99,7 @@ data Digraph s v meta = Digraph
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
 fromEdges
-    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
+    :: (Eq v, Ord v, Hashable v, WeightedEdge edge v meta Double)
     => [edge]   -- ^ (meta, from, to)
     -> ST s (Digraph s v meta)
 fromEdges edges = do
@@ -128,7 +130,7 @@ emptyClone (Digraph vc _ indexMap) = do
     return $ Digraph vc newVertexArray indexMap
 
 insertEdge_
-    :: E.DirectedEdge edge v meta
+    :: WeightedEdge edge v meta Double
     => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> HT.HashTable s v VertexId
     -> edge
@@ -137,12 +139,17 @@ insertEdge_ vertexArray indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
     outEdgeMap <- Arr.readArray vertexArray fromIdx
-    let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
+    let idxEdge = IdxEdge { eMeta = meta, _eFrom = from, _eTo = to
+                          , _eFromIdx = fromIdx, _eToIdx = toIdx, _eWeight = weight meta
+                          }
+        meta = E.metaData edge
     HT.insert outEdgeMap toIdx idxEdge
   where
     from = E.fromNode edge
     to = E.toNode edge
     lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
+
+type WeightedEdge edge v meta weight = (E.DirectedEdge edge v meta, HasWeight meta weight)
 
 -- | Look up vertex by label
 lookupVertex
@@ -154,16 +161,19 @@ lookupVertex (Digraph _ _ indexMap) vertex = do
     HT.lookup indexMap vertex
 
 insertEdge__
-    :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    :: HasWeight meta Double
+    => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> IdxEdge v meta
     -> ST s ()
 insertEdge__ vertexArray idxEdge@IdxEdge{..} = do
     outEdgeMap <- Arr.readArray vertexArray _eFromIdx
-    HT.insert outEdgeMap _eToIdx idxEdge
+    let newIdxEdge = idxEdge { _eWeight = weight eMeta }
+    HT.insert outEdgeMap _eToIdx newIdxEdge
 
 -- Overwrite an existing edge in the graph
 updateEdge
-    :: Digraph s v meta
+    :: HasWeight meta Double
+    => Digraph s v meta
     -> IdxEdge v meta
     -> ST s ()
 updateEdge (Digraph _ vertexArray _) = insertEdge__ vertexArray
