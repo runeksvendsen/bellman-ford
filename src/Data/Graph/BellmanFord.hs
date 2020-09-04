@@ -60,7 +60,7 @@ getGraph = R.asks sGraph
 
 data State s v meta = State
     { sGraph            :: DG.Digraph s v meta
-    , sWeightCombine    :: (Double -> meta -> Double)
+    , sWeightCombine    :: {-# NOUNPACK #-} (Double -> meta -> Double)
     , sMState           :: MState s v meta
     }
 
