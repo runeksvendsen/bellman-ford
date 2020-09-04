@@ -18,7 +18,9 @@ module Data.Graph.Digraph
 , vertexLabels
 , outgoingEdges
 , lookupVertex
-, clone
+, freeze
+, thaw
+, IDigraph
   -- * Edge/vertex
 , VertexId
 , vidInt
@@ -43,6 +45,7 @@ import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
 import qualified Data.Array.ST as Arr
+import qualified Data.Array.IArray as IArr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
 
@@ -116,21 +119,35 @@ fromEdges edges = do
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
 
--- | Return a copy of the input graph.
-clone
-    :: forall s v meta.
-       Digraph s v meta
+-- | An immutable form of 'Digraph'
+data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
+
+-- | Convert a mutable graph into an immutable graph.
+freeze
+    :: Digraph s v meta
+    -> ST s (IDigraph v meta)
+freeze (Digraph vc vertexArray indexMap) = do
+    frozenArray <- Arr.freeze vertexArray
+    kvArray <- sequence $ fmap keyValueSet frozenArray
+    kvSet <- keyValueSet indexMap
+    return $ IDigraph vc kvArray kvSet
+
+-- | Convert an immutable graph into an mutable graph.
+thaw
+    :: (Eq v, Hashable v)
+    => IDigraph v meta
     -> ST s (Digraph s v meta)
-clone (Digraph vc vertexArray indexMap) = do
-    emptyMaps <- sequence $ replicate vc HT.new
-    let range' = (VertexId 0, VertexId (vc - 1))
-    newVertexArray <- Arr.newListArray range' emptyMaps
-    outEdgeMapList <- mapM (Arr.readArray vertexArray) (range range')
-    forM_ (zip emptyMaps outEdgeMapList) copyTable
-    -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
-    return $ Digraph vc newVertexArray indexMap
+thaw (IDigraph vc frozenArray indexKv) = do
+    htArray <- sequence $ fmap fromKvSet frozenArray
+    vertexArray <- Arr.thaw htArray
+    indexMap <- fromKvSet indexKv
+    return $ Digraph vc vertexArray indexMap
   where
-    copyTable (emptyTable, table) = HT.foldM (\_ (k,v) -> HT.insert emptyTable k v) () table
+    fromKvSet kvSet = do
+        ht <- HT.new
+        foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht kvSet
+
+
 
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.
@@ -255,3 +272,10 @@ valueSet
     -> ST s [v]
 valueSet =
     HT.foldM (\accum (_, v) -> return $ v : accum) []
+
+-- | Set of map values
+keyValueSet
+    :: HT.HashTable s k v
+    -> ST s [(k,v)]
+keyValueSet =
+    HT.foldM (\accum kv -> return $ kv : accum) []
