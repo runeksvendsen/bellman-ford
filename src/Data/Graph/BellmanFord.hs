@@ -5,6 +5,7 @@ module Data.Graph.BellmanFord
 , BF
   -- * Algorithm
 , bellmanFord
+, bellmanFordG
   -- * Queries
 , pathTo
 , negativeCycle
@@ -105,13 +106,19 @@ resetState mutState = R.lift $ do
         indices <- range <$> Arr.getBounds arr
         forM_ indices (\idx -> Arr.writeArray arr idx value)
 
--- |
 bellmanFord
-    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => DG.HasWeight meta Double
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta, DG.HasWeight meta Double)
     => v    -- ^ Source vertex
     -> BF s v meta ()
-bellmanFord src = do
+bellmanFord = bellmanFordG True
+
+-- |
+bellmanFordG
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta, DG.HasWeight meta Double)
+    => Bool
+    -> v    -- ^ Source vertex
+    -> BF s v meta ()
+bellmanFordG checkNegative src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     resetState state    -- HACK: make things work for now before algorithm is improved
@@ -126,9 +133,10 @@ bellmanFord src = do
         case vertexM of
             Nothing     -> return ()
             Just vertex -> do
-                relax vertex
-                -- Recurse unless there's a negative cycle
-                unlessM hasNegativeCycle (go state)
+                relax checkNegative vertex
+                if checkNegative
+                    then unlessM hasNegativeCycle (go state) -- Recurse unless there's a negative cycle
+                    else go state
 
 -- |
 pathTo
@@ -165,9 +173,10 @@ hasPathTo state target =
 -- |
 relax
     :: (Show v, Ord v, Hashable v, Show meta)
-    => DG.VertexId
+    => Bool
+    -> DG.VertexId
     -> BF s v meta ()
-relax vertex = do
+relax checkNegative vertex = do
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
@@ -189,11 +198,12 @@ relax vertex = do
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $
                     enqueueVertex state to
-            -- Update cost (number of calls to "relax")
-            newCost <- MV.atomicModifyMutVar' (cost state)
-                (\cost' -> let newCost = cost' + 1 in (newCost, newCost))
-            when (newCost `mod` vertexCount == 0) $
-                findNegativeCycle
+            when checkNegative $ do
+                -- Update cost (number of calls to "relax")
+                newCost <- MV.atomicModifyMutVar' (cost state)
+                    (\cost' -> let newCost = cost' + 1 in (newCost, newCost))
+                when (newCost `mod` vertexCount == 0) $
+                    findNegativeCycle
 
 findNegativeCycle
     :: (Ord v, Show v, Show meta, Hashable v)
