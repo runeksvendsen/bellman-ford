@@ -18,6 +18,7 @@ module Data.Graph.Digraph
 , vertices
 , vertexLabels
 , outgoingEdges
+, outgoingEdges'
 , lookupVertex
 , freeze
 , thaw
@@ -266,6 +267,17 @@ outgoingEdges
 outgoingEdges (Digraph _ vertexArray _) vid = do
     outEdgeMap <- Arr.readArray vertexArray vid
     valueSet outEdgeMap
+
+-- | Same as 'outgoingEdges' but takes vertex label as input.
+--  Returns 'Nothing' in case the given vertex label does not exist
+outgoingEdges'
+    :: (Eq v, Hashable v)
+    => Digraph s v meta
+    -> v
+    -> ST s (Maybe [IdxEdge v meta])
+outgoingEdges' dg v = do
+    vidM <- lookupVertex dg v
+    maybe (return Nothing) (fmap Just . outgoingEdges dg) vidM
 
 -- | Set of map keys
 keySet
