@@ -28,6 +28,7 @@ import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
+import Debug.Trace (trace)
 
 
 type BF s v meta = R.ReaderT (State s v meta) (ST s)
@@ -168,7 +169,7 @@ relax
     => DG.VertexId
     -> BF s v meta ()
 relax vertex = do
-    graph      <- R.asks sGraph
+    graph      <- show (DG.vidInt vertex) `trace` R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
     edgeList   <- R.lift $ DG.outgoingEdges graph vertex
