@@ -20,6 +20,7 @@ module Data.Graph.Digraph
 , outgoingEdges
 , outgoingEdges'
 , lookupVertex
+, lookupVertexR
 , freeze
 , thaw
 , IDigraph
@@ -43,7 +44,7 @@ module Data.Graph.Digraph
 where
 
 import Data.Graph.Prelude
-import Protolude (NFData(rnf), Generic)
+import Protolude (swap, NFData(rnf), Generic)
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
@@ -195,6 +196,22 @@ lookupVertex
     -> ST s (Maybe VertexId)
 lookupVertex (Digraph _ _ indexMap) vertex = do
     HT.lookup indexMap vertex
+
+-- | Look up label by 'VertexId'
+lookupVertexR
+    :: (Eq v, Hashable v)
+    => Digraph s v meta
+    -> VertexId
+    -> ST s (Maybe v)
+lookupVertexR (Digraph _ _ indexMap) vertexId = do
+    labelMap <- mkLabelMap
+    HT.lookup labelMap vertexId
+  where
+    mkLabelMap = do
+        kvs <- keyValueSet indexMap
+        newMap <- HT.newSized (length kvs)
+        mapM_ (uncurry $ HT.insert newMap) (map swap kvs)
+        return newMap
 
 insertEdge__
     :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
