@@ -175,7 +175,7 @@ relax vertex = do
     edgeList   <- R.lift $ DG.outgoingEdges graph vertex
     distToFrom <- R.lift $ Arr.readArray (distTo state) (DG.vidInt vertex)
     vertexCount <- R.lift $ DG.vertexCount graph
-    mapM_ (handleEdge state calcWeight vertexCount distToFrom) edgeList
+    mapM_ (handleEdge state calcWeight vertexCount distToFrom) (reverse edgeList)
   where
     handleEdge state calcWeight vertexCount distToFrom edge =
         unlessM hasNegativeCycle $ do
