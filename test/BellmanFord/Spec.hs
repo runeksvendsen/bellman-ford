@@ -29,21 +29,27 @@ import           Text.Printf                        (printf)
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord"
-    [ Tasty.testGroup "passes 'check'"
-        [ QS.testProperty "additive (all weights)"
-            (\edges -> bellmanFord (+) (edges :: [TestEdge]))
-        , QS.testProperty "multiplicative (positive weights)"
-            (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
-        , QS.testProperty "additive (all weights) -log weight"
-            (\edges -> bellmanFord (+) (map NegLog edges :: [NegLog TestEdge]))
+    [ -- Tasty.testGroup "passes 'check'"
+        -- [ QS.testProperty "additive (all weights)"
+        --     (\edges -> bellmanFord (+) (edges :: [TestEdge]))
+        -- , QS.testProperty "multiplicative (positive weights)"
+        --     (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
+        -- , QS.testProperty "additive (all weights) -log weight"
+        --     (\edges -> bellmanFord (+) (map NegLog edges :: [NegLog TestEdge]))
+        -- ]
+     Tasty.testGroup "finds negative cycle" $
+        [ -- Tasty.testGroup "WITHOUT zero-weight cycle"
+            -- [ QS.testProperty "with no other edges in the graph" (findsNegativeCycle Nothing [])
+            -- , QS.testProperty "with other (positive-weight) edges in the graph" (findsNegativeCycle Nothing)
+            -- ]
+         Tasty.testGroup "WITH zero-weight cycle"
+            [ QS.testProperty "with no other edges in the graph" (findsNegativeCycleZero [])
+            , QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycleZero
+            ]
         ]
-    , Tasty.testGroup "finds negative cycle"
-       [ QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
-       , QS.testProperty "with other (positive-weight) edges in the graph" findsNegativeCycle
-       ]
-    , Tasty.testGroup "removePaths"
-       [ QS.testProperty "terminates" removePathsTerminates
-       ]
+    -- , Tasty.testGroup "removePaths"
+    --    [ QS.testProperty "terminates" removePathsTerminates
+    --    ]
     ]
 
 removePathsTerminates :: [TestEdge] -> Expectation
@@ -63,18 +69,24 @@ bellmanFord combine edges = do
         Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) $
             Lib.bellmanFord source
 
+findsNegativeCycleZero :: [PositiveWeight] -> ZeroCycle -> NegativeCycle -> Expectation
+findsNegativeCycleZero positiveEdges zeroCycle negCycle =
+    findsNegativeCycle (Just zeroCycle) positiveEdges negCycle
+
 -- | When edges comprising a negative cycle are added to the graph,
 --    along with an arbitrary number of positive-weight edges,
 --    "Lib.negativeCycle" finds only one negative cycle, equal
 --    to the list of input negative-cycle edges.
 findsNegativeCycle
-    :: [PositiveWeight]
+    :: Maybe ZeroCycle
+    -> [PositiveWeight]
     -> NegativeCycle
     -> Expectation
-findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
+findsNegativeCycle zeroCycleM positiveEdges (NegativeCycle cycleEdges) = do
     shuffledPositiveEdges <- Shuffle.shuffleM (map positiveWeight positiveEdges)
     shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges)
-    graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
+    shuffledZeroEdges <- Shuffle.shuffleM zeroCycleEdges
+    graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledZeroEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
     negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun $ do
@@ -91,6 +103,7 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
         Just returnedCycle ->
             map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges)
   where
+    zeroCycleEdges = maybe [] (NE.toList . getZeroCycle) zeroCycleM
     weightCombFun weight edge = weight + Lib.weight edge
 
 fromShuffledEdges

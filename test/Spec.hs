@@ -14,12 +14,12 @@ main :: IO ()
 main =
     Tasty.defaultMain $
         Tasty.testGroup "Properties" $
-            [ mkLocalOption 5 $ Util.spec
-            , mkLocalOption 5 $ Queue.spec
-            , mkLocalOption 3 $ Digraph.spec
-            , mkLocalOption 3 $ BellmanFord.spec
+            [ -- mkLocalOption 5 $ Util.spec
+            -- , mkLocalOption 5 $ Queue.spec
+            -- , mkLocalOption 3 $ Digraph.spec
+             mkLocalOption 4 $ BellmanFord.spec
             ]
   where
     mkLocalOption scDepth =
         Tasty.localOption (SC.SmallCheckDepth scDepth) .
-        Tasty.localOption (QC.QuickCheckTests 200)
+        Tasty.localOption (QC.QuickCheckTests 500)

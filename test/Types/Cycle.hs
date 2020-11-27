@@ -4,6 +4,7 @@
 module Types.Cycle
 ( EdgeCycle(..)
 , NegativeCycle(..)
+, ZeroCycle(..)
 )
 where
 
@@ -90,3 +91,35 @@ negativeCycle =
   where
     negativeWeightSum edgeCycle' =
         sum (NE.map getWeight $ getEdgeCycle edgeCycle') < 0
+
+newtype ZeroCycle = ZeroCycle { getZeroCycle :: NE.NonEmpty TestEdge }
+   deriving (Eq, Show, Ord)
+
+instance Monad m => SS.Serial m ZeroCycle where
+   series = zeroCycle
+
+instance QC.Arbitrary ZeroCycle where
+   arbitrary = zeroCycle
+
+zeroCycle
+   :: ( GenData m EdgeCycle
+      , GenData m [String]
+      , GenData m Double
+      )
+   => m ZeroCycle
+zeroCycle = do
+    cycle' <- edgeCycle
+    let edges = getEdgeCycle cycle'
+        cycleWeight = sum (map getWeight $ NE.toList edges)
+        edgesInit = NE.init edges
+        edgesLast = NE.last edges
+        startVertex = getTo edgesLast
+        newLastEdge = edgesLast { getTo = someVertexName }
+        extraEdge = TestEdge
+            { getFrom     = someVertexName
+            , getTo       = startVertex
+            , getWeight   = negate cycleWeight
+            }
+    return $ ZeroCycle . NE.fromList . concat $ [edgesInit, [newLastEdge], [extraEdge]]
+  where
+    someVertexName = "zero_cycle_extra_vertex"
