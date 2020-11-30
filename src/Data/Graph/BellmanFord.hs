@@ -45,11 +45,15 @@ runBF
     --    be updated.
     --  E.g. for Dijkstra with type parameter @e@ equal to 'Double',
     --   this function would simply be @('+')@.
+    -> Double
+    -- ^ "Zero-element". With a zero-element of @z@ and a weight-combination
+    --  function @weightComb@ then for all @a@: @weightComb z a = a@.
+    -- E.g.: equal to 0 if @weightComb@ equals @('+')@ and 1 if @weightComb@ equals @('*')@.
     -> BF s v meta a
     -> ST s a
-runBF graph weightCombine bf = do
+runBF graph weightCombine zero bf = do
     mutState <- initState graph
-    let state = State graph weightCombine mutState
+    let state = State graph weightCombine zero mutState
     R.runReaderT bf state
 
 getGraph
@@ -59,6 +63,7 @@ getGraph = R.asks sGraph
 data State s v meta = State
     { sGraph            :: DG.Digraph s v meta
     , sWeightCombine    :: (Double -> meta -> Double)
+    , sZero             :: Double
     , sMState           :: MState s v meta
     }
 
@@ -116,10 +121,11 @@ bellmanFord
     -> BF s v meta ()
 bellmanFord src = do
     graph <- R.asks sGraph
+    zero <- R.asks sZero
     state <- R.asks sMState
     resetState state    -- HACK: make things work for now before algorithm is improved
     srcVertex <- R.lift (lookupVertex graph src)
-    R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) 0.0
+    R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
     R.lift $ enqueueVertex state srcVertex
     go state
     (`assert` ()) <$> check (DG.vidInt srcVertex)
@@ -282,26 +288,27 @@ check
     -> BF s v meta Bool
 check source = do
     graph      <- R.asks sGraph
+    zero       <- R.asks sZero
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
     ifM hasNegativeCycle
-        (checkNegativeCycle state)
-        (checkNoCycle state graph calcWeight)
+        (checkNegativeCycle zero calcWeight state)
+        (checkNoCycle state graph zero calcWeight)
     return True
   where
-    checkNegativeCycle state = do
+    checkNegativeCycle zero calcWeight state = do
         negativeCycle' <- MV.readMutVar (cycle state)
         -- check that weight of negative cycle is negative
-        let weight = sum $ map (DG.weight . DG.eMeta) negativeCycle'
-        when (weight >= 0.0) $
+        let weight = foldr (flip calcWeight . DG.eMeta) zero negativeCycle'
+        when (weight >= zero) $
             error $ unlines [ "negative cycle is non-negative"
                             , printf "weight: %s" (show weight)
                             , printf "edges: %s" (show negativeCycle')
                             ]
-    checkNoCycle state graph calcWeight = R.lift $ do
+    checkNoCycle state graph zero calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
-        whenM ((/= 0.0) <$> Arr.readArray (distTo state) source) $
-            error "distTo source /= 0"
+        whenM ((/= zero) <$> Arr.readArray (distTo state) source) $
+            error "distTo source /= zero"
         whenM ((/= Nothing) <$> Arr.readArray (edgeTo state) source) $
             error "edgeTo source /= null"
         -- check that: edgeTo[v] == null implies distTo[v] == infinity and vice versa

@@ -31,11 +31,11 @@ spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord"
     [ Tasty.testGroup "passes 'check'"
         [ QS.testProperty "additive (all weights)"
-            (\edges -> bellmanFord (+) (edges :: [TestEdge]))
+            (\edges -> bellmanFord (+) 0 (edges :: [TestEdge]))
         , QS.testProperty "multiplicative (positive weights)"
-            (\edges -> bellmanFord (*) (map positiveWeight edges :: [TestEdge]))
+            (\edges -> bellmanFord (*) 1 (map positiveWeight edges :: [TestEdge]))
         , QS.testProperty "additive (all weights) -log weight"
-            (\edges -> bellmanFord (+) (map NegLog edges :: [NegLog TestEdge]))
+            (\edges -> bellmanFord (+) 0 (map NegLog edges :: [NegLog TestEdge]))
         ]
     , Tasty.testGroup "finds negative cycle"
        [ QS.testProperty "with no other edges in the graph" (findsNegativeCycle [])
@@ -54,13 +54,14 @@ removePathsTerminates edges = do
 bellmanFord
     :: (Lib.HasWeight a Double, Show a, Show v, Lib.DirectedEdge edge v a, Ord v, Eq a)
     => (Double -> Double -> Double)
+    -> Double
     -> [edge]
     -> IO ()
-bellmanFord combine edges = do
+bellmanFord combine zero edges = do
     graph <- fromShuffledEdges edges
     vertices <- ST.stToIO $ Lib.vertexLabels graph
     ST.stToIO $ forM_ vertices $ \source ->
-        Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) $
+        Lib.runBF graph (\weight edge -> weight `combine` Lib.weight edge) zero $
             Lib.bellmanFord source
 
 -- | When edges comprising a negative cycle are added to the graph,
@@ -77,7 +78,7 @@ findsNegativeCycle positiveEdges (NegativeCycle cycleEdges) = do
     graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
-    negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun $ do
+    negativeCycleM <- ST.stToIO $ Lib.runBF graph weightCombFun 0 $ do
         Lib.bellmanFord (head shuffledVertices)
         Lib.negativeCycle
     case negativeCycleM of
