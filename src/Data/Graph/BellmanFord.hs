@@ -78,6 +78,9 @@ data MState s v meta = MState
     , cycle     :: MV.MutVar s [DG.IdxEdge v meta]
     }
 
+epsilon :: Double
+epsilon = 1.0e-15
+
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
     :: MState s g e
@@ -184,7 +187,7 @@ relax vertex = do
             distToTo <- R.lift $ Arr.readArray (distTo state) toInt
             -- Actual relaxation
             let newToWeight = calcWeight distToFrom (DG.eMeta edge)
-            when (distToTo > newToWeight) $ R.lift $ do
+            when (distToTo > newToWeight + epsilon) $ R.lift $ do
                 Arr.writeArray (distTo state) toInt newToWeight
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $
@@ -316,7 +319,7 @@ check source = do
                 let w = DG.eToIdx e
                 distToV <- Arr.readArray (distTo state) (DG.vidInt v)
                 distToW <- Arr.readArray (distTo state) (DG.vidInt w)
-                when (calcWeight distToV (DG.eMeta e) < distToW) $
+                when (calcWeight distToV (DG.eMeta e) + epsilon < distToW) $
                     error $ "edge " ++ show e ++ " not relaxed"
         -- check that all edges e = v->w on SPT satisfy distTo[w] == distTo[v] + e.weight()
         forM_ (map DG.vidInt vertices) $ \w -> do
