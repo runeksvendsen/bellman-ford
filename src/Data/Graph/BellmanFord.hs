@@ -84,7 +84,7 @@ data MState s v meta = MState
     }
 
 epsilon :: Double
-epsilon = 1.0e-15
+epsilon = 1.0e-14
 
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
