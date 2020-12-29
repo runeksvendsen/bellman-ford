@@ -20,8 +20,8 @@ removePaths
 removePaths edges' end = do
     graph <- Lib.fromEdges edges'
     vs <- Lib.vertexLabels graph
-    Lib.runBF graph sumWeight $ forM_ vs (go graph Lib.negativeCycle)
-    Lib.runBF graph sumWeight $ forM_ vs $ \v -> do
+    Lib.runBF graph sumWeight 0 $ forM_ vs (go graph Lib.negativeCycle)
+    Lib.runBF graph sumWeight 0 $ forM_ vs $ \v -> do
         when (v /= end) $ go graph (Lib.pathTo end) v
   where
     sumWeight weight' edge = weight' + Lib.weight edge
