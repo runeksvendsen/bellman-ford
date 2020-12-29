@@ -105,7 +105,7 @@ resetState mutState = R.lift $ do
         indices <- range <$> Arr.getBounds arr
         forM_ indices (\idx -> Arr.writeArray arr idx value)
 
--- |
+-- | NB: has no effect if the source vertex does not exist
 bellmanFord
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => DG.HasWeight meta Double
@@ -114,13 +114,15 @@ bellmanFord
 bellmanFord src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
-    resetState state    -- HACK: make things work for now before algorithm is improved
-    srcVertex <- R.lift (lookupVertex graph src)
-    R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) 0.0
-    R.lift $ enqueueVertex state srcVertex
-    go state
-    (`assert` ()) <$> check (DG.vidInt srcVertex)
+    srcVertexM <- R.lift (DG.lookupVertex graph src)
+    forM_ srcVertexM (initAndGo state)
   where
+    initAndGo state srcVertex = do
+        resetState state
+        R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) 0.0
+        R.lift $ enqueueVertex state srcVertex
+        go state
+        (`assert` ()) <$> check (DG.vidInt srcVertex)
     go state = do
         vertexM <- R.lift $ dequeueVertex state
         case vertexM of
@@ -130,22 +132,23 @@ bellmanFord src = do
                 -- Recurse unless there's a negative cycle
                 unlessM hasNegativeCycle (go state)
 
--- |
+-- | NB: returns 'Nothing' if the target vertex does not exist
 pathTo
     :: (Show v, Eq v, Hashable v, Show meta)
     => v                        -- ^ Target vertex
     -> BF s v meta (Maybe [DG.IdxEdge v meta])
 pathTo target = do
     graph <- R.asks sGraph
-    state <- R.asks sMState
-    -- Check for negative cycle
-    negativeCycle >>= maybe (return ()) failNegativeCycle
-    targetVertex <- DG.vidInt <$> R.lift (lookupVertex graph target)
-    pathExists <- R.lift $ hasPathTo state targetVertex
-    R.lift $ if pathExists
-        then Just <$> go graph state [] targetVertex
-        else return Nothing
+    targetVertexM <- fmap DG.vidInt <$> R.lift (DG.lookupVertex graph target)
+    maybe (return Nothing) (findPath graph) targetVertexM
   where
+    findPath graph targetVertex = do
+        negativeCycle >>= maybe (return ()) failNegativeCycle -- Check for negative cycle
+        state <- R.asks sMState
+        pathExists <- R.lift $ hasPathTo state targetVertex
+        R.lift $ if pathExists
+            then Just <$> go graph state [] targetVertex
+            else return Nothing
     failNegativeCycle cycle' =
         error $ "Negative-cost cycle exists (target=" ++ show target ++ "): " ++ show cycle'
     go graph state accum toVertex = do
@@ -332,13 +335,3 @@ check source = do
                     distToW <- Arr.readArray (distTo state) w
                     when (calcWeight distToV (DG.eMeta e) /= distToW) $
                         error $ "edge " ++ show e ++ " on shortest path not tight"
-
--- Util
-
-lookupVertex
-    :: (Eq v, Hashable v, Show v)
-    => DG.Digraph s v meta
-    -> v
-    -> ST s DG.VertexId
-lookupVertex graph v =
-    fromMaybe (error $ "Vertex not found: " ++ show v) <$> DG.lookupVertex graph v
