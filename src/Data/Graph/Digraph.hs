@@ -18,6 +18,7 @@ module Data.Graph.Digraph
 , edgeCount
 , vertices
 , vertexLabels
+, vertexLabelsId
 , outgoingEdges
 , outgoingEdges'
 , lookupVertex
@@ -273,6 +274,13 @@ vertexLabels
     -> ST s [v]
 vertexLabels (Digraph _ _ indexMap) =
     keySet indexMap
+
+-- | Same as 'vertexLabels' but includes the vertex 'VertexId'
+vertexLabelsId
+    :: Digraph s v meta
+    -> ST s [(v, VertexId)]
+vertexLabelsId (Digraph _ _ indexMap) =
+    keyValueSet indexMap
 
 -- | All edges going out of the given vertex
 outgoingEdges
