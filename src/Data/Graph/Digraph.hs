@@ -11,6 +11,7 @@ module Data.Graph.Digraph
 ( -- * Graph
   Digraph
 , fromEdges
+, fromEdgesCombine
 , updateEdge
 , removeEdge
 , vertexCount
