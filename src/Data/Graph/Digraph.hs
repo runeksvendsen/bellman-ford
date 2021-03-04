@@ -105,11 +105,21 @@ data Digraph s v meta = Digraph
                     -- v -> vertexId
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
 
+-- |
 fromEdges
     :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
-    => [edge]   -- ^ (meta, from, to)
+    => [edge]
     -> ST s (Digraph s v meta)
-fromEdges edges = do
+fromEdges = fromEdgesCombine (const id)
+
+-- | Same as 'fromEdges', but offers a way to combine a new
+--    and existing edge with the same "from" and "to" vertex.
+fromEdgesCombine
+    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
+    => (meta -> meta -> meta) -- ^ "existing -> new -> combined"
+    -> [edge]   -- ^ (meta, from, to)
+    -> ST s (Digraph s v meta)
+fromEdgesCombine combine edges = do
     -- Create vertex->index map
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
@@ -118,7 +128,7 @@ fromEdges edges = do
     outEdgeMapList <- sequence $ replicate vertexCount' HT.new
     vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
     -- Populate vertex array
-    mapM_ (insertEdge_ vertexArray indexMap) edges
+    mapM_ (insertEdge_ combine vertexArray indexMap) edges
     return $ Digraph vertexCount' vertexArray indexMap
   where
     vertexCount' = length uniqueVertices
@@ -170,19 +180,23 @@ emptyClone (Digraph vc _ indexMap) = do
     -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
     return $ Digraph vc newVertexArray indexMap
 
+-- |
 insertEdge_
     :: E.DirectedEdge edge v meta
-    => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
+    => (meta -> meta -> meta) -- ^ "existing -> new -> combined"
+    -> Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> HT.HashTable s v VertexId
     -> edge
     -> ST s ()
-insertEdge_ vertexArray indexMap edge = do
+insertEdge_ combine vertexArray indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
     outEdgeMap <- Arr.readArray vertexArray fromIdx
     let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
-    HT.insert outEdgeMap toIdx idxEdge
+    HT.mutate outEdgeMap toIdx (mutateFunc idxEdge)
   where
+    mutateFunc idxEdge edgeM =
+        (Just $ maybe idxEdge (fmap (`combine` eMeta idxEdge)) edgeM, ())
     from = E.fromNode edge
     to = E.toNode edge
     lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
