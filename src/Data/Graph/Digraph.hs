@@ -21,6 +21,7 @@ module Data.Graph.Digraph
 , vertexLabelsId
 , outgoingEdges
 , outgoingEdges'
+, incomingEdges
 , lookupVertex
 , freeze
 , thaw
@@ -102,7 +103,7 @@ eToIdx = _eToIdx
 data Digraph s v meta = Digraph
                     -- vertex count
     {-# UNPACK #-} !Int
-                    -- vertexId -> (dstVertexId -> outgoingEdge)
+                    -- srcVertexId -> (dstVertexId -> outgoingEdge)
     {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
                     -- v -> vertexId
     {-# UNPACK #-} !(HT.HashTable s v VertexId)
@@ -301,6 +302,19 @@ outgoingEdges'
 outgoingEdges' dg v = do
     vidM <- lookupVertex dg v
     maybe (return Nothing) (fmap Just . outgoingEdges dg) vidM
+
+-- | WARNING: O(n) running time where "n" is the number of edges
+incomingEdges
+    :: Digraph s v meta
+    -> VertexId
+    -> ST s [IdxEdge v meta]
+incomingEdges (Digraph _ vertexArray _) vid = do
+    assocs <- Arr.getAssocs vertexArray
+    foldM (\lst (_, ht) -> HT.foldM htFold lst ht) [] assocs
+  where
+    htFold accum (k, v)
+        | k == vid = return $ v : accum
+        | otherwise = return accum
 
 -- | Set of map keys
 keySet
