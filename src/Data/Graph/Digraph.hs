@@ -17,6 +17,7 @@ module Data.Graph.Digraph
 , vertexCount
 , edgeCount
 , vertices
+, edges
 , vertexLabels
 , vertexLabelsId
 , outgoingEdges
@@ -268,6 +269,13 @@ vertices (Digraph vc _ _) =
     --  and it had the type 'Word', then @vc-1@ would evaluate to 'maxBound'.
     -- Thus @[0..vc-1]@ would produce a list of length 2^32 or 2^64 (depending
     --  on CPU word size).
+
+-- | All the edges in the graph
+edges
+    :: Digraph s v meta
+    -> ST s [IdxEdge v meta]
+edges (Digraph _ vertexArray _) =
+    concat <$> (Arr.getElems vertexArray >>= mapM valueSet)
 
 -- | All the vertex labels in the graph
 vertexLabels
