@@ -5,19 +5,6 @@
 
 packages:
 - completed:
-    subdir: mutable-containers
-    name: mutable-containers
-    version: 0.3.4
-    git: https://github.com/runeksvendsen/mono-traversable.git
-    pantry-tree:
-      size: 977
-      sha256: ebca039ff52f8159f172a134ef7ed471d3da26033a23f1e142a505fc838490a5
-    commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
-  original:
-    subdir: mutable-containers
-    git: https://github.com/runeksvendsen/mono-traversable.git
-    commit: d1c7e00240482b57ed61e9342cb227d44a02c70a
-- completed:
     name: impure-containers
     version: 0.5.0
     git: https://github.com/runeksvendsen/impure-containers.git

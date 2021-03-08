@@ -119,8 +119,8 @@ fromEdges = fromEdgesCombine (const id)
 -- | Same as 'fromEdges', but offers a way to combine a new
 --    and existing edge with the same "from" and "to" vertex.
 fromEdgesCombine
-    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
-    => (meta -> meta -> meta) -- ^ "existing -> new -> combined"
+    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v a)
+    => (Maybe meta -> a -> meta) -- ^ "existing -> new -> combined"
     -> [edge]   -- ^ (meta, from, to)
     -> ST s (Digraph s v meta)
 fromEdgesCombine combine edges' = do
@@ -186,8 +186,8 @@ emptyClone (Digraph vc _ indexMap) = do
 
 -- |
 insertEdge_
-    :: E.DirectedEdge edge v meta
-    => (meta -> meta -> meta) -- ^ "existing -> new -> combined"
+    :: E.DirectedEdge edge v a
+    => (Maybe meta -> a -> meta) -- ^ "existing -> new -> combined"
     -> Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> HT.HashTable s v VertexId
     -> edge
@@ -196,11 +196,12 @@ insertEdge_ combine vertexArray indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
     outEdgeMap <- Arr.readArray vertexArray fromIdx
-    let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
-    HT.mutate outEdgeMap toIdx (mutateFunc idxEdge)
+    let mkIdxEdge metaData = IdxEdge { eMeta = metaData, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
+    HT.mutate outEdgeMap toIdx (mutateFunc mkIdxEdge)
   where
-    mutateFunc idxEdge edgeM =
-        (Just $ maybe idxEdge (fmap (`combine` eMeta idxEdge)) edgeM, ())
+    mutateFunc mkIdxEdge edgeM =
+        let toMeta = combine (fmap E.metaData edgeM)
+        in (Just $ mkIdxEdge (toMeta $ E.metaData edge), ())
     from = E.fromNode edge
     to = E.toNode edge
     lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
