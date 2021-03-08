@@ -123,7 +123,7 @@ fromEdgesCombine
     => (meta -> meta -> meta) -- ^ "existing -> new -> combined"
     -> [edge]   -- ^ (meta, from, to)
     -> ST s (Digraph s v meta)
-fromEdgesCombine combine edges = do
+fromEdgesCombine combine edges' = do
     -- Create vertex->index map
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
@@ -132,11 +132,11 @@ fromEdgesCombine combine edges = do
     outEdgeMapList <- sequence $ replicate vertexCount' HT.new
     vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
     -- Populate vertex array
-    mapM_ (insertEdge_ combine vertexArray indexMap) edges
+    mapM_ (insertEdge_ combine vertexArray indexMap) edges'
     return $ Digraph vertexCount' vertexArray indexMap
   where
     vertexCount' = length uniqueVertices
-    uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+    uniqueVertices = U.nubOrd $ map E.fromNode edges' ++ map E.toNode edges'
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
