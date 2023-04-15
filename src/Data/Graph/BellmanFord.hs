@@ -83,6 +83,8 @@ data MState s v meta = MState
     , cycle     :: MV.MutVar s [DG.IdxEdge v meta]
     }
 
+-- | Necessary because of floating point rounding errors.
+--   Cf. https://stackoverflow.com/a/65051801/700597
 epsilon :: Double
 epsilon = 1.0e-14
 
