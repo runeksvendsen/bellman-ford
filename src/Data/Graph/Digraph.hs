@@ -10,11 +10,12 @@
 
 -- | Translation of Sedgewick & Wayne's @EdgeWeightedDigraph.java@ to Haskell (https://algs4.cs.princeton.edu/44sp/EdgeWeightedDigraph.java.html).
 --
---  Note that this supports only a single edge between two given vertices. In order to support multiple edges between two given vertices, you must change the graph's edge type to support it -- e.g. by using an edge type @NonEmpty e@ instead of @e@, and merging all edges that the same source and destination vertex into this non-empty list.
+--  Note that this supports only a single edge between two given vertices. In order to support multiple edges between two given vertices, you must change the graph's edge type to support it -- e.g. by using an edge type @NonEmpty e@ instead of @e@, and merging all edges that the same source and destination vertex into this non-empty list (which is what 'fromEdgesMulti' does).
 module Data.Graph.Digraph
 ( -- * Graph
   Digraph
 , fromEdges
+, fromEdgesMulti
 , updateEdge
 , removeEdge
 , vertexCount
@@ -55,6 +56,7 @@ import qualified Data.Array.ST as Arr
 import qualified Data.Array.IArray as IArr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
+import qualified Data.List.NonEmpty as NE
 
 ------------------------------------------------------------------
 ------------------  Edge with indexed vertices  ------------------
@@ -127,6 +129,37 @@ fromEdges edges = do
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+
+-- | One or more edges with the same src and dst vertex
+data NonEmptyEdges v meta = NonEmptyEdges
+    { _NonEmptyEdges_from :: !v
+    , _NonEmptyEdges_to :: !v
+    , _NonEmptyEdges_meta :: !(NE.NonEmpty meta)
+    }
+
+instance (Eq v, Hashable v) => E.DirectedEdge (NonEmptyEdges v meta) v (NE.NonEmpty meta) where
+    fromNode = _NonEmptyEdges_from
+    toNode   = _NonEmptyEdges_to
+    metaData = _NonEmptyEdges_meta
+
+-- | Create a graph that supports multiple edges that share src vertex and dst vertex
+fromEdgesMulti
+    :: forall s edge v meta.
+       (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
+    => [edge]
+    -> ST s (Digraph s v (NE.NonEmpty meta))
+fromEdgesMulti =
+    fromEdges
+        . map groupedEdgesToNonEmptyEdges
+        . NE.groupBy (\e1 e2 -> fromTo e1 == fromTo e2)
+  where
+    fromTo e = (E.fromNode e, E.toNode e)
+
+    -- Invariant: all the edges in the input list share src node and dst node
+    groupedEdgesToNonEmptyEdges :: NE.NonEmpty edge -> NonEmptyEdges v meta
+    groupedEdgesToNonEmptyEdges edges =
+        let edge = NE.head edges
+        in NonEmptyEdges (E.fromNode edge) (E.toNode edge) (fmap E.metaData edges)
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
