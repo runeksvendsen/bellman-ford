@@ -48,7 +48,7 @@ module Data.Graph.Digraph
 where
 
 import Data.Graph.Prelude
-import Protolude (NFData(rnf), Generic)
+import Protolude (NFData(rnf), Generic, Set)
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
@@ -57,6 +57,8 @@ import qualified Data.Array.IArray as IArr
 import qualified Data.HashTable.ST.Basic as HT
 import Data.Ix (Ix(..))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Set as Set
+import Data.List (sortOn)
 
 ------------------------------------------------------------------
 ------------------  Edge with indexed vertices  ------------------
@@ -146,14 +148,17 @@ instance (Eq v, Hashable v) => E.DirectedEdge (NonEmptyEdges v meta) v (NE.NonEm
 fromEdgesMulti
     :: forall s edge v meta.
        (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
-    => [edge]
+    => Set edge
     -> ST s (Digraph s v (NE.NonEmpty meta))
 fromEdgesMulti =
     fromEdges
         . map groupedEdgesToNonEmptyEdges
-        . NE.groupBy (\e1 e2 -> fromTo e1 == fromTo e2)
+        . groupOn fromTo
   where
     fromTo e = (E.fromNode e, E.toNode e)
+
+    groupOn :: (Ord b) => (a -> b) -> Set a -> [NE.NonEmpty a]
+    groupOn f = NE.groupBy (\a1 a2 -> f a1 == f a2) . sortOn f . Set.toList
 
     -- Invariant: all the edges in the input list share src node and dst node
     groupedEdgesToNonEmptyEdges :: NE.NonEmpty edge -> NonEmptyEdges v meta
