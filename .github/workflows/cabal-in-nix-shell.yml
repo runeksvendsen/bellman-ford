@@ -31,7 +31,7 @@ jobs:
           restore-keys: ${{ runner.os }}-
 
       - name: Test nix-shell
-        run: nix-shell --run "echo success"
+        run: nix-shell --run "echo 'it works \o/'"
 
       - name: Run 'cabal update'
         run: nix-shell --run "cabal update"
