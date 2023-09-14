@@ -28,6 +28,9 @@ jobs:
       - name: Test nix-shell
         run: nix-shell --run "echo success"
 
+      - name: Run 'cabal update'
+        run: nix-shell --run "cabal update"
+
       - name: Build library
         run: nix-shell --run "cabal build lib:bellman-ford"
 
