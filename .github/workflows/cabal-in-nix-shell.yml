@@ -25,7 +25,7 @@ jobs:
           name: crypto-venues
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-      - name: Test shell
+      - name: Test nix-shell
         run: nix-shell --run "echo success"
 
       - name: Build library
