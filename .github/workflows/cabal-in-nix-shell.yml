@@ -25,6 +25,9 @@ jobs:
           name: crypto-venues
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
+      - name: Test shell
+        run: nix-shell --run "echo success"
+
       - name: Build library
         run: nix-shell --run "cabal build lib:bellman-ford"
 
