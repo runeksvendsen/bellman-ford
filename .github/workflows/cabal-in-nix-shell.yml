@@ -1,0 +1,35 @@
+name: Build & test in nix-shell
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build_test_nix_shell:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.13.3/install
+          extra_nix_config: |
+            substituters = https://cache.nixos.org https://cache.iog.io https://crypto-venues.cachix.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ= crypto-venues.cachix.org-1:f/Gct4zIWxxQkdM1t5J+gjwTF/TwP3f+22dXYndeX44=
+            system-features = benchmark big-parallel kvm nixos-test
+
+      - uses: cachix/cachix-action@v12
+        with:
+          name: crypto-venues
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build library
+        run: nix-shell --run "cabal build lib:bellman-ford"
+
+      - name: Build tests
+        run: nix-shell --run "cabal build test-suite:bellman-ford-test"
+
+      - name: Run tests
+        run: nix-shell --run "cabal test"
