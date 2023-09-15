@@ -312,10 +312,12 @@ check source = do
                             ]
     checkNoCycle state graph zero calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
-        whenM ((/= zero) <$> Arr.readArray (distTo state) source) $
-            error "distTo source /= zero"
-        whenM ((/= Nothing) <$> Arr.readArray (edgeTo state) source) $
-            error "edgeTo source /= null"
+        distToSource <- Arr.readArray (distTo state) source
+        when (distToSource /= zero) $
+            error $ "distTo source /= zero: " <> show distToSource
+        edgeToSource <- Arr.readArray (edgeTo state) source
+        when (edgeToSource /= Nothing) $
+            error $ "edgeTo source /= null: " <> show edgeToSource
         -- check that: edgeTo[v] == null implies distTo[v] == infinity and vice versa
         vertices <- DG.vertices graph
         forM_ (map DG.vidInt vertices) $ \v ->
