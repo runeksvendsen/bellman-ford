@@ -28,6 +28,7 @@ import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
+import Debug.Trace (traceM)
 
 
 type BF s v meta = R.ReaderT (State s v meta) (ST s)
@@ -200,6 +201,7 @@ relax vertex = do
             let newToWeight = calcWeight distToFrom (DG.eMeta edge)
             when (distToTo > newToWeight + epsilon) $ R.lift $ do
                 Arr.writeArray (distTo state) toInt newToWeight
+                traceM $ unwords ["new distTo:", show newToWeight <> ",", "old distTo", show distToTo, "for", show edge]
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $
                     enqueueVertex state to
