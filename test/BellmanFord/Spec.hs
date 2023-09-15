@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module BellmanFord.Spec
 ( spec
+, tmpTest
 )
 where
 
@@ -26,6 +27,8 @@ import qualified Data.List.NonEmpty                 as NE
 import qualified System.Random.Shuffle              as Shuffle
 import           Text.Printf                        (printf)
 
+tmpTest :: [TestEdge] -> IO ()
+tmpTest = bellmanFord (*) 1
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord"
