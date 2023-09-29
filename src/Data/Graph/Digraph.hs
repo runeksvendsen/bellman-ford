@@ -148,7 +148,7 @@ instance (Eq v, Hashable v) => E.DirectedEdge (NonEmptyEdges v meta) v (NE.NonEm
 fromEdgesMulti
     :: forall s edge v meta.
        (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
-    => Set edge
+    => Set edge -- TODO: allow two or more of the same 'edge'?
     -> ST s (Digraph s v (NE.NonEmpty meta))
 fromEdgesMulti =
     fromEdges
