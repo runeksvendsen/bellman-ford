@@ -7,7 +7,6 @@ module Data.Graph.Dijkstra
 , bellmanFord
   -- * Queries
 , pathTo
-, negativeCycle
   -- * Types
 , E.DirectedEdge(..)
   -- * Extras
@@ -19,13 +18,9 @@ import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
-import qualified Data.Graph.Cycle                   as C
-import           Control.Monad.ST                   (ST)
 import           Data.Array.ST                      (STArray, STUArray)
 import qualified Data.Queue                         as Q
-import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr
-import qualified Data.List.NonEmpty                 as NE
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 
@@ -78,14 +73,8 @@ data MState s v meta = MState
       distTo    :: STUArray s Int Double
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
-      -- | onQueue[v] = is v currently on the queue?
-    , onQueue   :: STUArray s Int Bool
       -- | queue of vertices to relax
     , queue     :: Q.MQueue s DG.VertexId
-      -- | number of calls to relax()
-    , cost      :: MV.MutVar s Word
-      -- | negative cycle (empty list if no such cycle)
-    , cycle     :: MV.MutVar s [DG.IdxEdge v meta]
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -100,10 +89,7 @@ resetState
 resetState mutState = R.lift $ do
     fillArray (distTo mutState) (1/0)
     fillArray (edgeTo mutState) Nothing
-    fillArray (onQueue mutState) False
     emptyQueue (queue mutState)
-    MV.atomicModifyMutVar' (cost mutState) (const (0, ()))
-    MV.atomicModifyMutVar' (cycle mutState) (const ([], ()))
   where
     emptyQueue
         :: Q.MQueue s DG.VertexId
@@ -145,8 +131,7 @@ bellmanFord src = do
             Nothing     -> return ()
             Just vertex -> do
                 relax vertex
-                -- Recurse unless there's a negative cycle
-                unlessM hasNegativeCycle (go state)
+                go state
 
 -- | NB: returns 'Nothing' if the target vertex does not exist
 pathTo
@@ -159,14 +144,11 @@ pathTo target = do
     maybe (return Nothing) (findPath graph) targetVertexM
   where
     findPath graph targetVertex = do
-        negativeCycle >>= maybe (return ()) failNegativeCycle -- Check for negative cycle
         state <- R.asks sMState
         pathExists <- R.lift $ hasPathTo state targetVertex
         R.lift $ if pathExists
             then Just <$> go graph state [] targetVertex
             else return Nothing
-    failNegativeCycle cycle' =
-        error $ "Negative-cost cycle exists (target=" ++ show target ++ "): " ++ show cycle'
     go graph state accum toVertex = do
         edgeM <- Arr.readArray (edgeTo state) toVertex
         case edgeM of
@@ -195,8 +177,7 @@ relax vertex = do
     vertexCount <- R.lift $ DG.vertexCount graph
     mapM_ (handleEdge state calcWeight vertexCount distToFrom) edgeList
   where
-    handleEdge state calcWeight vertexCount distToFrom edge =
-        unlessM hasNegativeCycle $ do
+    handleEdge state calcWeight vertexCount distToFrom edge = do
             let to = DG.eToIdx edge
                 toInt = DG.vidInt to
             -- Look up current distance to "to" vertex
@@ -206,52 +187,8 @@ relax vertex = do
             when (distToTo > newToWeight + epsilon) $ R.lift $ do
                 Arr.writeArray (distTo state) toInt newToWeight
                 Arr.writeArray (edgeTo state) toInt (Just edge)
-                unlessM (Arr.readArray (onQueue state) toInt) $
-                    enqueueVertex state to
-            -- Update cost (number of calls to "relax")
-            newCost <- MV.atomicModifyMutVar' (cost state)
-                (\cost' -> let newCost = cost' + 1 in (newCost, newCost))
-            when (newCost `mod` vertexCount == 0) $
-                findNegativeCycle
-
-findNegativeCycle
-    :: (Ord v, Show v, Show meta, Hashable v)
-    => BF s v meta ()
-findNegativeCycle = do
-    state    <- R.asks sMState
-    spEdges  <- R.lift $ Arr.getElems (edgeTo state)
-    sptGraph <- mkSptGraph (catMaybes spEdges)
-    R.lift $ C.findCycle sptGraph >>= MV.writeMutVar (cycle state)
-  where
-    -- NB: If we were to create a new graph from the shortest-path edges
-    --  using 'DG.fromEdges', then these edges would be re-indexed, and thus have
-    --  different indices than the edges in 'sGraph'. This would cause 'negativeCycle'
-    --  to return edges with incorrect indices.
-    -- This potential bug could be prevented by adding an ST-style phantom
-    --  type variable to 'DG.Digraph' and exposing only a @runGraph@ function
-    --  in style of e.g. 'Data.Array.ST.runSTArray'. However, this approach has
-    --  not been adopted due to the added complexity.
-    mkSptGraph spEdges = do
-        graph <- getGraph
-        sptGraph <- R.lift $ DG.emptyClone graph
-        R.lift $ mapM_ (DG.updateEdge sptGraph) spEdges
-        return sptGraph
-
-hasNegativeCycle
-    :: BF s v meta Bool
-hasNegativeCycle = do
-    state <- R.asks sMState
-    fmap (not . null) . MV.readMutVar . cycle $ state
-
--- | Get negative cycle ('Nothing' in case there's no negative cycle)
-negativeCycle
-    :: BF s v meta (Maybe (NE.NonEmpty (DG.IdxEdge v meta)))
-negativeCycle = do
-    state    <- R.asks sMState
-    edgeList <- MV.readMutVar $ cycle state
-    case edgeList of
-        []    -> return Nothing
-        edges -> return $ Just $ NE.fromList edges
+                -- unlessM (Arr.readArray (onQueue state) toInt) $
+                enqueueVertex state to
 
 -- | Create initial 'MState'
 initState
@@ -262,10 +199,7 @@ initState graph = do
     MState
         <$> Arr.newArray (0, vertexCount) (1/0)      -- distTo
         <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
-        <*> Arr.newArray (0, vertexCount) False      -- onQueue
         <*> Q.new                                           -- queue
-        <*> MV.newMutVar 0                                  -- cost
-        <*> MV.newMutVar []                                 -- cycle
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
@@ -273,7 +207,6 @@ enqueueVertex
     -> DG.VertexId
     -> ST s ()
 enqueueVertex state vertex = do
-    Arr.writeArray (onQueue state) (DG.vidInt vertex) True  -- Mark vertex as being in queue
     Q.enqueue (queue state) vertex              -- Add vertex to queue
 
 -- | Remove vertex from queue (helper function)
@@ -284,7 +217,6 @@ dequeueVertex state = do
     -- Remove vertex from queue
     vertexM <- Q.dequeue (queue state)
     -- Mark vertex as not being in queue
-    maybe (return ()) (\vertex -> Arr.writeArray (onQueue state) (DG.vidInt vertex) False) vertexM
     return vertexM
 
 -- | check optimality conditions: either
@@ -301,20 +233,9 @@ check source = do
     zero       <- R.asks sZero
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    ifM hasNegativeCycle
-        (checkNegativeCycle zero calcWeight state)
-        (checkNoCycle state graph zero calcWeight)
+    checkNoCycle state graph zero calcWeight
     return True
   where
-    checkNegativeCycle zero calcWeight state = do
-        negativeCycle' <- MV.readMutVar (cycle state)
-        -- check that weight of negative cycle is negative
-        let weight = foldr (flip calcWeight . DG.eMeta) zero negativeCycle'
-        when (weight >= zero) $
-            error $ unlines [ "negative cycle is non-negative"
-                            , printf "weight: %s" (show weight)
-                            , printf "edges: %s" (show negativeCycle')
-                            ]
     checkNoCycle state graph zero calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
         whenM ((/= zero) <$> Arr.readArray (distTo state) source) $
