@@ -30,6 +30,7 @@ library
       Data.Graph.Util
       Data.Queue
       Data.Stack
+      Data.IndexMinPQ
   other-modules:
       Paths_bellman_ford
   hs-source-dirs:
