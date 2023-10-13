@@ -103,3 +103,52 @@ decreaseKey pq i key = undefined
 --     keys[i] = key;
 --     swim(qp[i]);
 -- }
+
+-- ***************************************************************************
+-- * General helper functions.
+-- ***************************************************************************
+
+exch
+  :: IndexMinPQ s key
+  -> Int
+  -> Int
+  -> ST s ()
+exch pq i j = undefined
+-- private void exch(int i, int j) {
+--     int swap = pq[i];
+--     pq[i] = pq[j];
+--     pq[j] = swap;
+--     qp[pq[i]] = i;
+--     qp[pq[j]] = j;
+-- }
+
+--  ***************************************************************************
+--  * Heap helper functions.
+--  ***************************************************************************
+
+swim
+  :: IndexMinPQ s key
+  -> Int
+  -> ST s ()
+swim pq k = undefined
+-- private void swim(int k) {
+--     while (k > 1 && greater(k/2, k)) {
+--         exch(k, k/2);
+--         k = k/2;
+--     }
+-- }
+
+sink
+  :: IndexMinPQ s key
+  -> Int
+  -> ST s ()
+sink pq k = undefined
+-- private void sink(int k) {
+--     while (2*k <= n) {
+--         int j = 2*k;
+--         if (j < n && greater(j, j+1)) j++;
+--         if (!greater(k, j)) break;
+--         exch(k, j);
+--         k = j;
+--     }
+-- }
