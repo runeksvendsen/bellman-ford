@@ -60,6 +60,7 @@ test-suite bellman-ford-test
       Digraph.Spec
       EmptyGraph
       Queue.Spec
+      IndexMinPQ.Spec
       Types.Cycle
       Types.Edge
       Types.ListWithItem

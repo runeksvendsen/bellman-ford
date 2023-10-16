@@ -19,7 +19,7 @@ import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Data.Array.ST                      (STArray, STUArray)
-import qualified Data.Queue                         as Q
+import qualified Data.IndexMinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
@@ -74,7 +74,7 @@ data MState s v meta = MState
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
       -- | queue of vertices to relax
-    , queue     :: Q.MQueue s DG.VertexId
+    , queue     :: Q.IndexMinPQ s DG.VertexId
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -92,11 +92,11 @@ resetState mutState = R.lift $ do
     emptyQueue (queue mutState)
   where
     emptyQueue
-        :: Q.MQueue s DG.VertexId
+        :: Q.IndexMinPQ s DG.VertexId
         -> ST s ()
     emptyQueue queue' = do
-        let go = maybe (return ()) (\_ -> Q.dequeue queue' >>= go)
-        Q.dequeue queue' >>= go
+        let go = error "TODO" -- maybe (return ()) (\_ -> Q.delMin queue' >>= go)
+        Q.delMin queue' >>= go
     fillArray
         :: Arr.MArray a e (ST s)
         => a Int e
@@ -199,7 +199,7 @@ initState graph = do
     MState
         <$> Arr.newArray (0, vertexCount) (1/0)      -- distTo
         <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
-        <*> Q.new                                           -- queue
+        <*> Q.newIndexMinPQ vertexCount                                           -- queue
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
@@ -207,7 +207,7 @@ enqueueVertex
     -> DG.VertexId
     -> ST s ()
 enqueueVertex state vertex = do
-    Q.enqueue (queue state) vertex              -- Add vertex to queue
+    Q.insert (queue state) 0 vertex              -- Add vertex to queue
 
 -- | Remove vertex from queue (helper function)
 dequeueVertex
@@ -215,9 +215,9 @@ dequeueVertex
     -> ST s (Maybe DG.VertexId)
 dequeueVertex state = do
     -- Remove vertex from queue
-    vertexM <- Q.dequeue (queue state)
+    vertexM <- Q.delMin (queue state)
     -- Mark vertex as not being in queue
-    return vertexM
+    return $ error "TODO"
 
 -- | check optimality conditions: either
 -- (i) there exists a negative cycle reachable from s

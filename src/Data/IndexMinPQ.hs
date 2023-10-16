@@ -7,9 +7,11 @@ module Data.IndexMinPQ
 , newIndexMinPQ
 , isEmpty
 , insert
+, minKey
 , delMin
 , contains
 , decreaseKey
+, asSortedList
 )
 where
 
@@ -18,6 +20,9 @@ import Data.Array.ST
 import qualified Data.Primitive as MV
 import qualified Data.Array.MArray as Arr
 
+-- | Indexed min priority queue.
+--
+-- See https://algs4.cs.princeton.edu/44sp/IndexMinPQ.java.html.
 data IndexMinPQ s key = IndexMinPQ
   { state_maxN :: {-# UNPACK #-} !Int
     -- ^ maximum number of elements on PQ
@@ -30,6 +35,36 @@ data IndexMinPQ s key = IndexMinPQ
   , state_keys :: STArray s Int (Maybe key)
     -- ^ keys[i] = priority of i
   }
+
+assertFail
+  :: Show key
+  => IndexMinPQ s key
+  -> String
+  -> ST s a
+assertFail pq msg = do
+  dbgInfo <- debugShowState pq
+  fail $ unwords [msg <> ".", dbgInfo]
+
+debugShowState
+  :: Show key
+  => IndexMinPQ s key
+  -> ST s String
+debugShowState pq = do
+  n <- MV.readMutVar (state_n pq)
+  pq' <- showArray (state_pq pq)
+  qp <- showArray (state_qp pq)
+  keys <- showArray (state_keys pq)
+  pure $ unwords
+    [ "IndexMinPQ {"
+    , record "maxN" (show $ state_maxN pq)
+    , record "n" (show n)
+    , record "pq" pq'
+    , record "qp" qp
+    , record "keys" keys
+    , "}"
+    ]
+  where
+    record name val = name <> "=" <> val
 
 newIndexMinPQ :: Int -> ST s (IndexMinPQ s key)
 newIndexMinPQ maxN = do
@@ -61,6 +96,7 @@ insert
   -> key
   -> ST s ()
 insert pq i key = do
+  validateIndex pq i
   whenM (contains pq i) $
     fail $ "index is already in the priority queue: " <> show i
   n <- modifyMutVar (state_n pq) (+ 1) -- n++
@@ -69,19 +105,31 @@ insert pq i key = do
   Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
   swim pq n -- swim(n)
 
+minKey
+  :: Show key
+  => IndexMinPQ s key
+  -> ST s key
+minKey pq = do
+  assertQueueNotEmpty pq
+  minKeyIndex <- Arr.readArray (state_pq pq) 1 -- pq[1]
+  mKey <- Arr.readArray (state_keys pq) minKeyIndex -- keys[pq[1]]
+  maybe (failOnBug minKeyIndex) pure mKey
+  where
+    failOnBug minKeyIndex = do
+      assertFail pq $ "BUG: minKey: no key for index: " <> show minKeyIndex
+
 delMin
-  :: Ord key
+  :: (Ord key, Show key)
   => IndexMinPQ s key
   -> ST s Int
 delMin pq = do
-  whenM ((== 0) <$> MV.readMutVar (state_n pq)) $
-    fail "Priority queue underflow"
+  assertQueueNotEmpty pq
   min' <- Arr.readArray (state_pq pq) 1 -- int min = pq[1]
   n <- modifyMutVar (state_n pq) (subtract 1) -- n--
   exch pq 1 n -- exch(1, n)
   sink pq 1 -- sink(1)
   unlessM ((== min') <$> Arr.readArray (state_pq pq) (n+1)) $
-    fail "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
+    assertFail pq "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
   Arr.writeArray (state_qp pq) min' (-1) -- qp[min] = -1
   Arr.writeArray (state_keys pq) min' Nothing -- keys[min] = null
   Arr.writeArray (state_pq pq) (n+1) (-1) -- pq[n+1] = -1
@@ -91,8 +139,9 @@ contains
   :: IndexMinPQ s key
   -> Int
   -> ST s Bool
-contains q i = do
-  (/= -1) <$> Arr.readArray (state_qp q) i -- return qp[i] != -1;
+contains pq i = do
+  validateIndex pq i
+  (/= -1) <$> Arr.readArray (state_qp pq) i -- return qp[i] != -1;
 
 decreaseKey
   :: (Ord key, Show key)
@@ -101,6 +150,7 @@ decreaseKey
   -> key
   -> ST s ()
 decreaseKey pq i key = do
+  validateIndex pq i
   whenM (not <$> contains pq i) $ -- if (!contains(i))
     fail $ "index is not in the priority queue: " <> show i
   iKey <- Arr.readArray (state_keys pq) i >>= maybe (fail $ "decreaseKey: no such index: " <> show i) pure
@@ -111,9 +161,40 @@ decreaseKey pq i key = do
   Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
   Arr.readArray (state_qp pq) i >>= swim pq -- swim(qp[i])
 
+-- | Return the queue elements as a sorted list (increasing order)
+asSortedList
+  :: (Ord key, Show key)
+  => IndexMinPQ s key
+  -> ST s [(Int, key)]
+asSortedList pq = do
+  n <- MV.readMutVar (state_n pq)
+  if n == 0
+    then pure []
+    else do
+      key <- minKey pq
+      i <- delMin pq
+      ((i, key) :) <$> asSortedList pq
+
 -- ***************************************************************************
 -- * General helper functions.
 -- ***************************************************************************
+
+validateIndex
+  :: IndexMinPQ s key
+  -> Int
+  -> ST s ()
+validateIndex pq i = do
+  when (i < 0) $
+    fail $ "index is negative: " ++ show i
+  when (i >= state_maxN pq) $
+    fail $ "index >= capacity: " ++ show i
+
+assertQueueNotEmpty
+  :: IndexMinPQ s key
+  -> ST s ()
+assertQueueNotEmpty pq =
+  whenM ((== 0) <$> MV.readMutVar (state_n pq)) $
+    fail "Priority queue underflow"
 
 greater
   :: Ord key
@@ -189,3 +270,14 @@ modifyMutVar
   -> m a
 modifyMutVar mv f =
   MV.atomicModifyMutVar' mv (\n -> let !n' = f n in (n', n')) -- n++
+
+showArray
+  :: ( MArray a e m
+      , Ix i
+      , Show e
+      )
+  => a i e
+  -> m String
+showArray array = do
+  bounds <- getBounds array
+  show <$> forM (range bounds) (Arr.readArray array)

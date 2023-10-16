@@ -3,6 +3,7 @@ module Main where
 import qualified BellmanFord.Spec                   as BellmanFord
 import qualified Digraph.Spec                       as Digraph
 import qualified Queue.Spec                         as Queue
+import qualified IndexMinPQ.Spec                    as IndexMinPQ
 import qualified Util.Spec                          as Util
 
 import qualified Test.Tasty                         as Tasty
@@ -16,6 +17,7 @@ main =
         Tasty.testGroup "Properties" $
             [ mkLocalOption 5 $ Util.spec
             , mkLocalOption 5 $ Queue.spec
+            , mkLocalOption 5 $ IndexMinPQ.spec
             , mkLocalOption 3 $ Digraph.spec
             , mkLocalOption 3 $ BellmanFord.spec
             ]
