@@ -19,6 +19,7 @@ import Data.Graph.Prelude
 import Data.Array.ST
 import qualified Data.Primitive as MV
 import qualified Data.Array.MArray as Arr
+import Debug.Trace (traceM)
 
 -- | Indexed min priority queue.
 --
@@ -44,6 +45,15 @@ assertFail
 assertFail pq msg = do
   dbgInfo <- debugShowState pq
   fail $ unwords [msg <> ".", dbgInfo]
+
+debugTrace
+  :: Show key
+  => IndexMinPQ s key
+  -> String
+  -> ST s ()
+debugTrace pq msg = do
+  dbgInfo <- debugShowState pq
+  traceM $ msg <> ": " <> dbgInfo
 
 debugShowState
   :: Show key
@@ -90,7 +100,7 @@ isEmpty pq =
   (== 0) <$> MV.readMutVar (state_n pq)
 
 insert
-  :: Ord key
+  :: (Ord key, Show key)
   => IndexMinPQ s key
   -> Int
   -> key
@@ -104,6 +114,7 @@ insert pq i key = do
   Arr.writeArray (state_pq pq) n i -- pq[n] = i
   Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
   swim pq n -- swim(n)
+  debugTrace pq $ "insert " <> show i <> " " <> show key
 
 minKey
   :: Show key
@@ -125,14 +136,15 @@ delMin
 delMin pq = do
   assertQueueNotEmpty pq
   min' <- Arr.readArray (state_pq pq) 1 -- int min = pq[1]
-  n <- modifyMutVar (state_n pq) (subtract 1) -- n--
-  exch pq 1 n -- exch(1, n)
+  prevN <- MV.atomicModifyMutVar' (state_n pq) (\n -> (n-1, n)) -- decrement "n", return original "n"
+  exch pq 1 prevN -- exch(1, n--) -- NOTE: the unincremented "n" is passed to "exch" since the postfix decrement operator is used
   sink pq 1 -- sink(1)
-  unlessM ((== min') <$> Arr.readArray (state_pq pq) (n+1)) $
+  unlessM ((== min') <$> Arr.readArray (state_pq pq) prevN) $
     assertFail pq "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
   Arr.writeArray (state_qp pq) min' (-1) -- qp[min] = -1
   Arr.writeArray (state_keys pq) min' Nothing -- keys[min] = null
-  Arr.writeArray (state_pq pq) (n+1) (-1) -- pq[n+1] = -1
+  Arr.writeArray (state_pq pq) prevN (-1) -- pq[n+1] = -1
+  debugTrace pq "delMin"
   pure min'
 
 contains
@@ -160,6 +172,7 @@ decreaseKey pq i key = do
     fail $ "Calling decreaseKey() with a key strictly greater than the key in the priority queue: " <> show (i, key, iKey)
   Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
   Arr.readArray (state_qp pq) i >>= swim pq -- swim(qp[i])
+  debugTrace pq $ "decreaseKey " <> show i <> " " <> show key
 
 -- | Return the queue elements as a sorted list (increasing order)
 asSortedList
@@ -210,7 +223,8 @@ greater pq i j = do
   pure $ pqIKey > pqJKey
 
 exch
-  :: IndexMinPQ s key
+  :: Show key
+  => IndexMinPQ s key
   -> Int
   -> Int
   -> ST s ()
@@ -221,13 +235,14 @@ exch pq i j = do
   Arr.writeArray (state_pq pq) j swap -- pq[j] = swap;
   Arr.writeArray (state_qp pq) oldPqJ i -- qp[oldPqJ] = i;
   Arr.writeArray (state_qp pq) swap j -- qp[swap] = j;
+  debugTrace pq $ "exch " <> show i <> " " <> show j
 
 --  ***************************************************************************
 --  * Heap helper functions.
 --  ***************************************************************************
 
 swim
-  :: Ord key
+  :: (Ord key, Show key)
   => IndexMinPQ s key
   -> Int
   -> ST s ()
@@ -239,25 +254,30 @@ swim pq k =
       swim pq halfOfK -- k = k/2 (also acts as the "while" by recursing)
 
 sink
-  :: Ord key => IndexMinPQ s key
+  :: (Ord key, Show key)
+  => IndexMinPQ s key
   -> Int
   -> ST s ()
-sink pq k = do
-  n <- MV.readMutVar (state_n pq)
-  when (2*k <= n) $ do
-    let j = 2*k -- int j = 2*k
-    jIsGreaterThanJPlusOne <- greater pq j (j+1)
-    if (j < n && jIsGreaterThanJPlusOne) -- if (j < n && greater(j, j+1))
-      then exchAndRecurse (j+1)
-      else exchAndRecurse j
+sink pq k' = do
+  go k'
+  debugTrace pq $ "sink " <> show k'
   where
+    go k = do
+      n <- MV.readMutVar (state_n pq)
+      when (2*k <= n) $ do
+        let j = 2*k -- int j = 2*k
+        jIsGreaterThanJPlusOne <- greater pq j (j+1)
+        if (j < n && jIsGreaterThanJPlusOne) -- if (j < n && greater(j, j+1))
+          then exchAndRecurse k (j+1)
+          else exchAndRecurse k j
+
     -- does everything after the line
     --   if (j < n && greater(j, j+1)) j++;
     -- with either the original/unincremented "j" or the incremented "j"
-    exchAndRecurse j =
+    exchAndRecurse k j =
       whenM (greater pq k j) $ do -- if (!greater(k, j)) break;
         exch pq k j -- exch(k, j)
-        sink pq j -- k = j (also acts as the "while" by recursing)
+        go j -- k = j (also acts as the "while" by recursing)
 
 --  ***************************************************************************
 --  * Haskell helper functions.
@@ -269,7 +289,7 @@ modifyMutVar
   -> (a -> a)
   -> m a
 modifyMutVar mv f =
-  MV.atomicModifyMutVar' mv (\n -> let !n' = f n in (n', n')) -- n++
+  MV.atomicModifyMutVar' mv (\n -> let !n' = f n in (n', n'))
 
 showArray
   :: ( MArray a e m
