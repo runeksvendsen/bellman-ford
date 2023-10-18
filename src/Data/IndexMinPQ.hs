@@ -119,13 +119,20 @@ insert pq i key = do
   swim pq n -- swim(n)
   debugTrace pq $ "insert " <> show i <> " " <> show key
 
+minIndex
+  :: Show key
+  => IndexMinPQ s key
+  -> ST s Int
+minIndex pq = do
+  assertQueueNotEmpty pq
+  Arr.readArray (state_pq pq) 1 -- return pq[1]
+
 minKey
   :: Show key
   => IndexMinPQ s key
   -> ST s key
 minKey pq = do
-  assertQueueNotEmpty pq
-  minKeyIndex <- Arr.readArray (state_pq pq) 1 -- pq[1]
+  minKeyIndex <- minIndex pq -- pq[1]
   mKey <- Arr.readArray (state_keys pq) minKeyIndex -- keys[pq[1]]
   maybe (failOnBug minKeyIndex) pure mKey
   where
