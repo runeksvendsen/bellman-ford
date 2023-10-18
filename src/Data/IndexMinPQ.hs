@@ -11,7 +11,7 @@ module Data.IndexMinPQ
 , delMin
 , contains
 , decreaseKey
-, asSortedList
+, emptyAsSortedList
 )
 where
 
@@ -184,19 +184,19 @@ decreaseKey pq i key = do
   Arr.readArray (state_qp pq) i >>= swim pq -- swim(qp[i])
   debugTrace pq $ "decreaseKey " <> show i <> " " <> show key
 
--- | Return the queue elements as a sorted list (increasing order)
-asSortedList
+-- | Empty the queue and return the elements as a sorted list (increasing order)
+emptyAsSortedList
   :: (Ord key, Show key)
   => IndexMinPQ s key
   -> ST s [(Int, key)]
-asSortedList pq = do
+emptyAsSortedList pq = do
   n <- MV.readMutVar (state_n pq)
   if n == 0
     then pure []
     else do
       key <- minKey pq
       i <- delMin pq
-      ((i, key) :) <$> asSortedList pq
+      ((i, key) :) <$> emptyAsSortedList pq
 
 -- ***************************************************************************
 -- * General helper functions.

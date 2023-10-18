@@ -17,7 +17,7 @@ import Data.List (sortOn, groupBy)
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "IndexMinPQ" $
-    [ Tasty.testGroup "'asSortedList' on queue with items inserted in shuffled order"
+    [ Tasty.testGroup "'emptyAsSortedList' on queue with items inserted in shuffled order"
         [ QS.testProperty "returns sorted items" $ \priorities ->
             enqueueListDeque (map (,Nothing) priorities)
         , QS.testProperty "with arbitrary 'decreaseKey': returns sorted items" enqueueListDeque
@@ -41,11 +41,11 @@ enqueueListDeque priorities' = do
         forM_ shuffledIndexedItems2 $ \(index, (originalPrio, mDecreasePrio)) ->
             forM_ mDecreasePrio $ \decreasePrio ->
                 Lib.decreaseKey queue index (originalPrio - decreasePrio)
-        Lib.asSortedList queue
+        Lib.emptyAsSortedList queue
     let sortEqualPrioritySublists :: [(Int, Priority)] -> [(Int, Priority)]
         sortEqualPrioritySublists lst =
             -- NOTE: If we only sort by 'Priority', then equal priorities have an undefined order.
-            --       For example, if we put the list [(0, 1), (1, 1)] into the queue then 'Lib.asSortedList' may return it in either order.
+            --       For example, if we put the list [(0, 1), (1, 1)] into the queue then 'Lib.emptyAsSortedList' may return it in either order.
             --       To solve this, we split the list into sublists of adjacent equal priority, and sort
             --       these sublists by the index (which is unique), thereby making the order of adjacent
             --       equal priorities well-defined (based on the index).
