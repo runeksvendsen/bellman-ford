@@ -35,6 +35,8 @@ data IndexMinPQ s key = IndexMinPQ
     -- ^ inverse of pq - qp[pq[i]] = pq[qp[i]] = i
   , state_keys :: STArray s Int (Maybe key)
     -- ^ keys[i] = priority of i
+  , indexMinPQ_trace :: !Bool
+    -- ^ print debug/trace info
   }
 
 assertFail
@@ -51,7 +53,7 @@ debugTrace
   => IndexMinPQ s key
   -> String
   -> ST s ()
-debugTrace pq msg = do
+debugTrace pq msg = when (indexMinPQ_trace pq) $ do
   dbgInfo <- debugShowState pq
   traceM $ msg <> ": " <> dbgInfo
 
@@ -86,7 +88,8 @@ newIndexMinPQ maxN = do
   qp <- Arr.newArray (0, maxN + 1) (-1)
   keys <- Arr.newArray (0, maxN + 1) Nothing
   pure $ IndexMinPQ
-    { state_maxN = maxN
+    { indexMinPQ_trace = False
+    , state_maxN = maxN
     , state_n = n
     , state_pq = pq
     , state_qp = qp

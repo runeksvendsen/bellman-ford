@@ -61,6 +61,7 @@ test-suite bellman-ford-test
       EmptyGraph
       Queue.Spec
       IndexMinPQ.Spec
+      IndexMinPQ.Util
       Types.Cycle
       Types.Edge
       Types.ListWithItem
@@ -81,6 +82,8 @@ test-suite bellman-ford-test
     , hspec-smallcheck
     , primitive
     , random-shuffle
+    , QuickCheck
+    , containers
     , smallcheck
     , tasty
     , tasty-quickcheck
