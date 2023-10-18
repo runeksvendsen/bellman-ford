@@ -189,14 +189,17 @@ emptyAsSortedList
   :: (Ord key, Show key)
   => IndexMinPQ s key
   -> ST s [(Int, key)]
-emptyAsSortedList pq = do
-  n <- MV.readMutVar (state_n pq)
-  if n == 0
-    then pure []
-    else do
-      key <- minKey pq
-      i <- delMin pq
-      ((i, key) :) <$> emptyAsSortedList pq
+emptyAsSortedList pq =
+  go
+  where
+    go = do
+      n <- MV.readMutVar (state_n pq)
+      if n == 0
+        then pure []
+        else do
+          key <- minKey pq
+          i <- delMin pq
+          ((i, key) :) <$> go
 
 -- ***************************************************************************
 -- * General helper functions.
