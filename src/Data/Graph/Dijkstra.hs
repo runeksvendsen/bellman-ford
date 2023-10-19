@@ -4,7 +4,7 @@ module Data.Graph.Dijkstra
   runBF
 , BF
   -- * Algorithm
-, bellmanFord
+, dijkstra
   -- * Queries
 , pathTo
   -- * Types
@@ -23,7 +23,7 @@ import qualified Data.IndexMinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
-
+import Unsafe.Coerce (unsafeCoerce)
 
 type BF s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -47,11 +47,7 @@ runBF
     -> BF s v meta a
     -> ST s a
 runBF graph weightCombine zero bf = do
-        -- for (DirectedEdge e : G.edges()) {
-        --     if (e.weight() < 0)
-        --         throw new IllegalArgumentException("edge " + e + " has negative weight");
-        -- }
-
+    -- TODO: assert all edge weights >= 0
     mutState <- initState graph
     let state = State graph weightCombine zero mutState
     R.runReaderT bf state
@@ -74,7 +70,7 @@ data MState s v meta = MState
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
       -- | queue of vertices to relax
-    , queue     :: Q.IndexMinPQ s DG.VertexId
+    , queue     :: Q.IndexMinPQ s Double
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -92,11 +88,10 @@ resetState mutState = R.lift $ do
     emptyQueue (queue mutState)
   where
     emptyQueue
-        :: Q.IndexMinPQ s DG.VertexId
+        :: Q.IndexMinPQ s Double
         -> ST s ()
-    emptyQueue queue' = do
-        let go = error "TODO" -- maybe (return ()) (\_ -> Q.delMin queue' >>= go)
-        Q.delMin queue' >>= go
+    emptyQueue = void . Q.emptyAsSortedList
+
     fillArray
         :: Arr.MArray a e (ST s)
         => a Int e
@@ -107,31 +102,65 @@ resetState mutState = R.lift $ do
         forM_ indices (\idx -> Arr.writeArray arr idx value)
 
 -- | NB: has no effect if the source vertex does not exist
-bellmanFord
+dijkstra
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => DG.HasWeight meta Double
     => v    -- ^ Source vertex
     -> BF s v meta ()
-bellmanFord src = do
+dijkstra src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     srcVertexM <- R.lift (DG.lookupVertex graph src)
-    forM_ srcVertexM (initAndGo state)
+    forM_ srcVertexM (initAndGo state graph)
   where
-    initAndGo state srcVertex = do
+    initAndGo state graph srcVertex = do
         resetState state
         zero <- R.asks sZero
         R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
-        R.lift $ enqueueVertex state srcVertex
-        go state
+        R.lift $ enqueueVertex state srcVertex zero
+        go state graph
         (`assert` ()) <$> check (DG.vidInt srcVertex)
-    go state = do
-        vertexM <- R.lift $ dequeueVertex state
-        case vertexM of
-            Nothing     -> return ()
-            Just vertex -> do
-                relax vertex
-                go state
+
+    go state graph = do
+        let pq = queue state
+        whenM (not <$> R.lift (Q.isEmpty pq)) $ do
+            v <- dequeueVertex
+            edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
+            forM_ edgeList relax
+            go state graph
+
+-- |
+relax
+    :: (Show v, Ord v, Hashable v, Show meta)
+    => DG.IdxEdge v meta
+    -> BF s v meta ()
+relax edge = do
+    calcWeight <- R.asks sWeightCombine
+    state      <- R.asks sMState
+    distToFrom <- distTo' (DG.eFromIdx edge)
+    handleEdge state calcWeight distToFrom
+  where
+    handleEdge state calcWeight distToFrom = do
+        let to = DG.eToIdx edge
+            toInt = DG.vidInt to
+        -- Look up current distance to "to" vertex
+        distToTo <- distTo' to
+        -- Actual relaxation
+        let newToWeight = calcWeight distToFrom (DG.eMeta edge)
+        when (distToTo > newToWeight + epsilon) $ R.lift $ do
+            Arr.writeArray (distTo state) toInt newToWeight -- distTo[w] = distTo[v] + e.weight()
+            Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
+            queueContainsToNode <- Q.contains (queue state) toInt
+            if queueContainsToNode -- if (pq.contains(w))
+                then Q.decreaseKey (queue state) toInt distToTo -- pq.decreaseKey(w, distTo[w])
+                else enqueueVertex state to distToTo -- pq.insert(w, distTo[w])
+
+distTo'
+    :: DG.VertexId
+    -> BF s v meta Double
+distTo' v = do
+    state <- R.asks sMState
+    R.lift $ Arr.readArray (distTo state) (DG.vidInt v)
 
 -- | NB: returns 'Nothing' if the target vertex does not exist
 pathTo
@@ -140,15 +169,16 @@ pathTo
     -> BF s v meta (Maybe [DG.IdxEdge v meta])
 pathTo target = do
     graph <- R.asks sGraph
-    targetVertexM <- fmap DG.vidInt <$> R.lift (DG.lookupVertex graph target)
+    targetVertexM <- R.lift (DG.lookupVertex graph target)
     maybe (return Nothing) (findPath graph) targetVertexM
   where
     findPath graph targetVertex = do
         state <- R.asks sMState
-        pathExists <- R.lift $ hasPathTo state targetVertex
+        pathExists <- hasPathTo targetVertex
         R.lift $ if pathExists
-            then Just <$> go graph state [] targetVertex
+            then Just <$> go graph state [] (DG.vidInt targetVertex)
             else return Nothing
+
     go graph state accum toVertex = do
         edgeM <- Arr.readArray (edgeTo state) toVertex
         case edgeM of
@@ -157,38 +187,10 @@ pathTo target = do
                 go graph state (edge : accum) (DG.vidInt $ DG.eFromIdx edge)
 
 hasPathTo
-    :: MState s g e
-    -> Int
-    -> ST s Bool
-hasPathTo state target =
-    (< (1/0)) <$> Arr.readArray (distTo state) target
-
--- |
-relax
-    :: (Show v, Ord v, Hashable v, Show meta)
-    => DG.VertexId
-    -> BF s v meta ()
-relax vertex = do
-    graph      <- R.asks sGraph
-    calcWeight <- R.asks sWeightCombine
-    state      <- R.asks sMState
-    edgeList   <- R.lift $ DG.outgoingEdges graph vertex
-    distToFrom <- R.lift $ Arr.readArray (distTo state) (DG.vidInt vertex)
-    vertexCount <- R.lift $ DG.vertexCount graph
-    mapM_ (handleEdge state calcWeight vertexCount distToFrom) edgeList
-  where
-    handleEdge state calcWeight vertexCount distToFrom edge = do
-            let to = DG.eToIdx edge
-                toInt = DG.vidInt to
-            -- Look up current distance to "to" vertex
-            distToTo <- R.lift $ Arr.readArray (distTo state) toInt
-            -- Actual relaxation
-            let newToWeight = calcWeight distToFrom (DG.eMeta edge)
-            when (distToTo > newToWeight + epsilon) $ R.lift $ do
-                Arr.writeArray (distTo state) toInt newToWeight
-                Arr.writeArray (edgeTo state) toInt (Just edge)
-                -- unlessM (Arr.readArray (onQueue state) toInt) $
-                enqueueVertex state to
+    :: DG.VertexId
+    -> BF s v meta Bool
+hasPathTo target =
+    (< (1/0)) <$> distTo' target
 
 -- | Create initial 'MState'
 initState
@@ -205,19 +207,17 @@ initState graph = do
 enqueueVertex
     :: MState s g e
     -> DG.VertexId
+    -> Double
     -> ST s ()
-enqueueVertex state vertex = do
-    Q.insert (queue state) 0 vertex              -- Add vertex to queue
+enqueueVertex state vertex dist = do
+    Q.insert (queue state) (DG.vidInt vertex) dist
 
 -- | Remove vertex from queue (helper function)
 dequeueVertex
-    :: MState s g e
-    -> ST s (Maybe DG.VertexId)
-dequeueVertex state = do
-    -- Remove vertex from queue
-    vertexM <- Q.delMin (queue state)
-    -- Mark vertex as not being in queue
-    return $ error "TODO"
+    :: BF s v meta DG.VertexId
+dequeueVertex = do
+    state <- R.asks sMState
+    unsafeCoerce <$> R.lift (Q.delMin (queue state))
 
 -- | check optimality conditions: either
 -- (i) there exists a negative cycle reachable from s
@@ -233,10 +233,10 @@ check source = do
     zero       <- R.asks sZero
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    checkNoCycle state graph zero calcWeight
+    check' state graph zero calcWeight
     return True
   where
-    checkNoCycle state graph zero calcWeight = R.lift $ do
+    check' state graph zero calcWeight = R.lift $ do
         -- check that distTo[v] and edgeTo[v] are consistent
         whenM ((/= zero) <$> Arr.readArray (distTo state) source) $
             error "distTo source /= zero"
