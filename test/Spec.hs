@@ -24,4 +24,4 @@ main =
   where
     mkLocalOption scDepth =
         Tasty.localOption (SC.SmallCheckDepth scDepth) .
-        Tasty.localOption (QC.QuickCheckTests 200)
+        Tasty.localOption (QC.QuickCheckTests 2000)
