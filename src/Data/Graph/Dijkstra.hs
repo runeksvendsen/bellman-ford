@@ -1,8 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
-  runBF
-, BF
+  runDijkstra
+, Dijkstra
   -- * Algorithm
 , dijkstra
   -- * Queries
@@ -25,10 +25,10 @@ import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 import Unsafe.Coerce (unsafeCoerce)
 
-type BF s v meta = R.ReaderT (State s v meta) (ST s)
+type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
 -- |
-runBF
+runDijkstra
     :: DG.Digraph s v meta
     -> (Double -> meta -> Double)
     -- ^ Weight combination function @f@.
@@ -44,16 +44,16 @@ runBF
     -- ^ "Zero-element". With a zero-element of @z@ and a weight-combination
     --  function @weightComb@ then for all @a@: @weightComb z a = a@.
     -- E.g.: equal to 0 if @weightComb@ equals @('+')@ and 1 if @weightComb@ equals @('*')@.
-    -> BF s v meta a
+    -> Dijkstra s v meta a
     -> ST s a
-runBF graph weightCombine zero bf = do
+runDijkstra graph weightCombine zero bf = do
     -- TODO: assert all edge weights >= 0
     mutState <- initState graph
     let state = State graph weightCombine zero mutState
     R.runReaderT bf state
 
 getGraph
-    :: BF s v meta (DG.Digraph s v meta)
+    :: Dijkstra s v meta (DG.Digraph s v meta)
 getGraph = R.asks sGraph
 
 data State s v meta = State
@@ -81,7 +81,7 @@ epsilon = 1.0e-14
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
     :: MState s g e
-    -> BF s v meta ()
+    -> Dijkstra s v meta ()
 resetState mutState = R.lift $ do
     fillArray (distTo mutState) (1/0)
     fillArray (edgeTo mutState) Nothing
@@ -106,7 +106,7 @@ dijkstra
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => DG.HasWeight meta Double
     => v    -- ^ Source vertex
-    -> BF s v meta ()
+    -> Dijkstra s v meta ()
 dijkstra src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
@@ -133,7 +133,7 @@ dijkstra src = do
 relax
     :: (Show v, Ord v, Hashable v, Show meta)
     => DG.IdxEdge v meta
-    -> BF s v meta ()
+    -> Dijkstra s v meta ()
 relax edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
@@ -157,7 +157,7 @@ relax edge = do
 
 distTo'
     :: DG.VertexId
-    -> BF s v meta Double
+    -> Dijkstra s v meta Double
 distTo' v = do
     state <- R.asks sMState
     R.lift $ Arr.readArray (distTo state) (DG.vidInt v)
@@ -166,7 +166,7 @@ distTo' v = do
 pathTo
     :: (Show v, Eq v, Hashable v, Show meta)
     => v                        -- ^ Target vertex
-    -> BF s v meta (Maybe [DG.IdxEdge v meta])
+    -> Dijkstra s v meta (Maybe [DG.IdxEdge v meta])
 pathTo target = do
     graph <- R.asks sGraph
     targetVertexM <- R.lift (DG.lookupVertex graph target)
@@ -188,7 +188,7 @@ pathTo target = do
 
 hasPathTo
     :: DG.VertexId
-    -> BF s v meta Bool
+    -> Dijkstra s v meta Bool
 hasPathTo target =
     (< (1/0)) <$> distTo' target
 
@@ -214,7 +214,7 @@ enqueueVertex state vertex dist = do
 
 -- | Remove vertex from queue (helper function)
 dequeueVertex
-    :: BF s v meta DG.VertexId
+    :: Dijkstra s v meta DG.VertexId
 dequeueVertex = do
     state <- R.asks sMState
     unsafeCoerce <$> R.lift (Q.delMin (queue state))
@@ -227,7 +227,7 @@ dequeueVertex = do
 check
     :: (Eq meta, Show meta, Show v, DG.HasWeight meta Double, Eq v)
     => Int
-    -> BF s v meta Bool
+    -> Dijkstra s v meta Bool
 check source = do
     graph      <- R.asks sGraph
     zero       <- R.asks sZero

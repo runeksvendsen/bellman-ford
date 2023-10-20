@@ -5,6 +5,7 @@
 module Types.Edge
 ( TestEdge(..)
 , PositiveWeight(..)
+, NonNegativeWeight(..)
 , Unweighted(..)
 , NegLog(..)
 )
@@ -64,6 +65,26 @@ instance QC.Arbitrary PositiveWeight where
                      <*> QC.arbitrary
                      <*> fmap QC.getPositive QC.arbitrary
       in PositiveWeight <$> positiveEdge
+
+newtype NonNegativeWeight = NonNegativeWeight { nonNegativeWeight :: TestEdge }
+   deriving (Eq, Ord)
+
+instance Show NonNegativeWeight where
+   show = show . nonNegativeWeight
+
+instance Monad m => SS.Serial m NonNegativeWeight where
+   series = do
+      SS.NonNegative weight' <- SS.series
+      edge <- SS.series
+      return $ NonNegativeWeight $ edge { getWeight = weight' }
+
+instance QC.Arbitrary NonNegativeWeight where
+   arbitrary =
+      let nonNegativeEdge =
+            TestEdge <$> QC.arbitrary
+                     <*> QC.arbitrary
+                     <*> fmap QC.getNonNegative QC.arbitrary
+      in NonNegativeWeight <$> nonNegativeEdge
 
 -- | The negative log of something
 newtype NegLog a = NegLog { getLog :: a }

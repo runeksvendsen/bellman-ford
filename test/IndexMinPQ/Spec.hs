@@ -9,7 +9,7 @@ import IndexMinPQ.Util
 import qualified Util.QuickSmall as QS
 import qualified Data.IndexMinPQ as Lib
 import qualified Control.Monad.ST as ST
-import Test.Hspec.Expectations (Expectation, shouldBe)
+import Test.Hspec.Expectations.Pretty (Expectation, shouldBe)
 import qualified Test.Tasty as Tasty
 import qualified Test.Hspec.SmallCheck () -- Apparently has an instance for "Test.QuickCheck.Property.Testable (IO ())"
 import qualified System.Random.Shuffle as Shuffle

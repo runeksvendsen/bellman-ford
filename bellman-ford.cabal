@@ -57,6 +57,7 @@ test-suite bellman-ford-test
   main-is: Spec.hs
   other-modules:
       BellmanFord.Spec
+      Dijkstra.Spec
       Digraph.Spec
       EmptyGraph
       Queue.Spec
@@ -65,6 +66,7 @@ test-suite bellman-ford-test
       Types.Cycle
       Types.Edge
       Types.ListWithItem
+      Types.Graph
       Util
       Util.GenData
       Util.QuickSmall
@@ -78,7 +80,7 @@ test-suite bellman-ford-test
       MonadRandom
     , base >=4.7 && <5
     , bellman-ford
-    , hspec-expectations
+    , hspec-expectations-pretty-diff
     , hspec-smallcheck
     , primitive
     , random-shuffle

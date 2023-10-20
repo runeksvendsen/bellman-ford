@@ -8,7 +8,7 @@ import qualified Data.Queue                         as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations            (Expectation, shouldBe)
+import           Test.Hspec.Expectations.Pretty            (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
 
 

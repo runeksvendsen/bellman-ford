@@ -17,14 +17,13 @@ import qualified Data.Graph.BellmanFord             as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations            ( Expectation
+import           Test.Hspec.Expectations.Pretty            ( Expectation
                                                     , shouldSatisfy
                                                     , expectationFailure
                                                     )
 import qualified Test.Tasty                         as Tasty
 import qualified Data.List.NonEmpty                 as NE
 import qualified System.Random.Shuffle              as Shuffle
-import           Text.Printf                        (printf)
 
 
 spec :: Tasty.TestTree

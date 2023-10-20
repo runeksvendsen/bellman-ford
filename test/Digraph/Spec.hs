@@ -16,7 +16,7 @@ import           Data.List                          (groupBy, sortOn, sort)
 import           Control.Monad.ST                   (stToIO)
 
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations            (Expectation, shouldBe)
+import           Test.Hspec.Expectations.Pretty            (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
 
 

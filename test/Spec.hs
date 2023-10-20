@@ -1,6 +1,7 @@
 module Main where
 
 import qualified BellmanFord.Spec                   as BellmanFord
+import qualified Dijkstra.Spec                      as Dijkstra
 import qualified Digraph.Spec                       as Digraph
 import qualified Queue.Spec                         as Queue
 import qualified IndexMinPQ.Spec                    as IndexMinPQ
@@ -20,8 +21,9 @@ main =
             , mkLocalOption 5 $ IndexMinPQ.spec
             , mkLocalOption 3 $ Digraph.spec
             , mkLocalOption 3 $ BellmanFord.spec
+            , mkLocalOption 3 $ Dijkstra.spec
             ]
   where
     mkLocalOption scDepth =
         Tasty.localOption (SC.SmallCheckDepth scDepth) .
-        Tasty.localOption (QC.QuickCheckTests 2000)
+        Tasty.localOption (QC.QuickCheckTests 4000)
