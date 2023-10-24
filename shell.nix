@@ -12,7 +12,7 @@ let
 in
   pkgs.mkShell {
     nativeBuildInputs = [
-      pkgs.haskell.compiler.ghc810
+      pkgs.haskell.compiler.ghc90
       release-21-05.cabal-install
       pkgs.git
     ];
