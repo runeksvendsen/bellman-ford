@@ -129,6 +129,7 @@ dijkstra src = do
             forM_ edgeList relax
             go state graph
 
+{-# SCC relax #-}
 -- |
 relax
     :: (Show v, Ord v, Hashable v, Show meta)

@@ -176,6 +176,7 @@ hasPathTo
 hasPathTo state target =
     (< (1/0)) <$> Arr.readArray (distTo state) target
 
+{-# SCC relax #-}
 -- |
 relax
     :: (Show v, Ord v, Hashable v, Show meta)
