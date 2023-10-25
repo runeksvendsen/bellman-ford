@@ -7,6 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- | Translation of Sedgewick & Wayne's @EdgeWeightedDigraph.java@ to Haskell (https://algs4.cs.princeton.edu/44sp/EdgeWeightedDigraph.java.html).
 --
@@ -167,7 +168,14 @@ fromEdgesMulti =
         in NonEmptyEdges (E.fromNode edge) (E.toNode edge) (fmap E.metaData edges)
 
 -- | An immutable form of 'Digraph'
-data IDigraph v meta = IDigraph !Int !(IArr.Array VertexId [(VertexId, IdxEdge v meta)]) ![(v, VertexId)]
+data IDigraph v meta =
+    IDigraph
+        !Int
+        -- ^ Vertex count
+        !(IArr.Array VertexId ([(VertexId, IdxEdge v meta)], Int))
+        -- ^ Outgoing edges array, including list length
+        ![(v, VertexId)] -- TODO: !(IArr.Array v VertexId)
+        -- ^ vertex-to-VertexId map
 
 instance (NFData v, NFData meta) => NFData (IDigraph v meta) where
     rnf (IDigraph vc vertexArray indexMap) =
@@ -181,7 +189,7 @@ freeze
     -> ST s (IDigraph v meta)
 freeze (Digraph vc vertexArray indexMap) = do
     frozenArray <- Arr.freeze vertexArray
-    kvArray <- sequence $ fmap keyValueSet frozenArray
+    kvArray <- sequence $ fmap keyValueSetWithLength frozenArray
     kvSet <- keyValueSet indexMap
     return $ IDigraph vc kvArray kvSet
 
@@ -193,11 +201,11 @@ thaw
 thaw (IDigraph vc frozenArray indexKv) = do
     htArray <- sequence $ fmap fromKvSet frozenArray
     vertexArray <- Arr.thaw htArray
-    indexMap <- fromKvSet indexKv
+    indexMap <- fromKvSet (indexKv, vc)
     return $ Digraph vc vertexArray indexMap
   where
-    fromKvSet kvSet = do
-        ht <- HT.new
+    fromKvSet (kvSet, size) = do
+        ht <- HT.newSized size
         foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht kvSet
 
 -- | Return a copy of the input graph that has the same vertices
@@ -341,3 +349,10 @@ keyValueSet
     -> ST s [(k,v)]
 keyValueSet =
     HT.foldM (\accum kv -> return $ kv : accum) []
+
+-- | Set of map values
+keyValueSetWithLength
+    :: HT.HashTable s k v
+    -> ST s ([(k,v)], Int)
+keyValueSetWithLength =
+    HT.foldM (\(accum, !len) kv -> return (kv : accum, len + 1)) ([], 0)
