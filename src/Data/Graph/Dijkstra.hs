@@ -5,6 +5,7 @@ module Data.Graph.Dijkstra
 , Dijkstra
   -- * Algorithm
 , dijkstra
+, dijkstraSourceSink
   -- * Queries
 , pathTo
   -- * Types
@@ -107,7 +108,31 @@ dijkstra
     => DG.HasWeight meta Double
     => v    -- ^ Source vertex
     -> Dijkstra s v meta ()
-dijkstra src = do
+dijkstra = dijkstraTerminate (const $ pure False)
+
+-- | Source-sink shortest path
+--
+-- Find _only_ the shortest path from @source@ to @destination@,
+-- not all shortests paths starting from @source@.
+dijkstraSourceSink
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => DG.HasWeight meta Double
+    => (v, v)    -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta ()
+dijkstraSourceSink (src, dst) = do
+    graph <- R.asks sGraph
+    mVid <- R.lift $ DG.lookupVertex graph dst
+    forM_ mVid $ \vid ->
+        dijkstraTerminate (\vid' -> pure $ vid' == vid) src
+
+-- | NB: has no effect if the source vertex does not exist
+dijkstraTerminate
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => DG.HasWeight meta Double
+    => (DG.VertexId -> Dijkstra s v meta Bool)
+    -> v    -- ^ Source vertex
+    -> Dijkstra s v meta ()
+dijkstraTerminate terminate src = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     srcVertexM <- R.lift (DG.lookupVertex graph src)
@@ -125,9 +150,10 @@ dijkstra src = do
         let pq = queue state
         whenM (not <$> R.lift (Q.isEmpty pq)) $ do
             v <- dequeueVertex
-            edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
-            forM_ edgeList relax
-            go state graph
+            unlessM (terminate v) $ do
+                edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
+                forM_ edgeList relax
+                go state graph
 
 {-# SCC relax #-}
 -- |
