@@ -144,7 +144,6 @@ dijkstraTerminate terminate src = do
         R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
         R.lift $ enqueueVertex state srcVertex zero
         go state graph
-        (`assert` ()) <$> check (DG.vidInt srcVertex)
 
     go state graph = do
         let pq = queue state
