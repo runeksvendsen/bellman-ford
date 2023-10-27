@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra
@@ -105,7 +106,6 @@ resetState mutState = R.lift $ do
 -- | NB: has no effect if the source vertex does not exist
 dijkstra
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => DG.HasWeight meta Double
     => v    -- ^ Source vertex
     -> Dijkstra s v meta ()
 dijkstra = dijkstraTerminate (const $ pure False)
@@ -116,7 +116,6 @@ dijkstra = dijkstraTerminate (const $ pure False)
 -- not all shortests paths starting from @source@.
 dijkstraSourceSink
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => DG.HasWeight meta Double
     => (v, v)    -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta ()
 dijkstraSourceSink (src, dst) = do
@@ -128,7 +127,6 @@ dijkstraSourceSink (src, dst) = do
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => DG.HasWeight meta Double
     => (DG.VertexId -> Dijkstra s v meta Bool)
     -> v    -- ^ Source vertex
     -> Dijkstra s v meta ()
@@ -193,24 +191,41 @@ pathTo
     :: (Show v, Eq v, Hashable v, Show meta)
     => v                        -- ^ Target vertex
     -> Dijkstra s v meta (Maybe [DG.IdxEdge v meta])
-pathTo target = do
+pathTo target =
+    foldPathTo (\edge accum -> edge : accum) [] target
+
+-- | Fold over the edges in the shortest path to a vertex
+foldPathTo
+    :: forall v meta accum s.
+       (Show v, Eq v, Hashable v, Show meta)
+    => (DG.IdxEdge v meta -> accum -> accum)
+    -- ^ Fold function: first argument is an edge on the shortest path to the target vertex
+    -> accum
+    -- ^ Initial state for fold (@accum@)
+    -> v
+    -- ^ Target vertex
+    -> Dijkstra s v meta (Maybe accum)
+    -- ^ Returns 'Nothing' if either the target vertex doesn't exist or there is no path to it
+foldPathTo folder initAccum target = do
     graph <- R.asks sGraph
     targetVertexM <- R.lift (DG.lookupVertex graph target)
-    maybe (return Nothing) (findPath graph) targetVertexM
+    maybe (return Nothing) findPath targetVertexM
   where
-    findPath graph targetVertex = do
+    findPath targetVertex = do
         state <- R.asks sMState
         pathExists <- hasPathTo targetVertex
         R.lift $ if pathExists
-            then Just <$> go graph state [] (DG.vidInt targetVertex)
+            then Just <$> go state initAccum targetVertex
             else return Nothing
 
-    go graph state accum toVertex = do
-        edgeM <- Arr.readArray (edgeTo state) toVertex
+    go :: MState s v meta -> accum -> DG.VertexId -> ST s accum
+    go state accum toVertex = do
+        edgeM <- Arr.readArray (edgeTo state) (DG.vidInt toVertex)
         case edgeM of
             Nothing   -> return accum
             Just edge -> do
-                go graph state (edge : accum) (DG.vidInt $ DG.eFromIdx edge)
+                go state (folder edge accum) (DG.eFromIdx edge)
+
 
 hasPathTo
     :: DG.VertexId
@@ -251,7 +266,7 @@ dequeueVertex = do
 -- (ii)  for all edges e = v->w:            distTo[w] <= distTo[v] + e.weight()
 -- (ii') for all edges e = v->w on the SPT: distTo[w] == distTo[v] + e.weight()
 check
-    :: (Eq meta, Show meta, Show v, DG.HasWeight meta Double, Eq v)
+    :: (Eq meta, Show meta, Show v, Eq v)
     => Int
     -> Dijkstra s v meta Bool
 check source = do
