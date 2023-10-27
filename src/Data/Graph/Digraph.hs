@@ -18,6 +18,7 @@ module Data.Graph.Digraph
 , fromEdges
 , fromEdgesMulti
 , updateEdge
+, insertEdge
 , removeEdge
 , vertexCount
 , edgeCount
@@ -260,6 +261,13 @@ updateEdge
     -> IdxEdge v meta
     -> ST s ()
 updateEdge (Digraph _ vertexArray _) = insertEdge__ vertexArray
+
+-- Insert/overwrite an existing edge in the graph
+insertEdge
+    :: Digraph s v meta
+    -> IdxEdge v meta
+    -> ST s ()
+insertEdge = updateEdge
 
 -- -- | Remove an existing edge from the graph
 removeEdge
