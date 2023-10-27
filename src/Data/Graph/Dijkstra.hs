@@ -178,8 +178,8 @@ relax edge = do
             Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
             queueContainsToNode <- Q.contains (queue state) toInt
             if queueContainsToNode -- if (pq.contains(w))
-                then Q.decreaseKey (queue state) toInt distToTo -- pq.decreaseKey(w, distTo[w])
-                else enqueueVertex state to distToTo -- pq.insert(w, distTo[w])
+                then Q.decreaseKey (queue state) toInt newToWeight -- pq.decreaseKey(w, distTo[w])
+                else enqueueVertex state to newToWeight -- pq.insert(w, distTo[w])
 
 distTo'
     :: DG.VertexId
