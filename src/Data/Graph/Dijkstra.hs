@@ -26,6 +26,7 @@ import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 import Unsafe.Coerce (unsafeCoerce)
+import Debug.Trace (traceM)
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -149,6 +150,7 @@ dijkstraTerminate terminate src = do
             v <- dequeueVertex
             unlessM (terminate v) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
+                traceM $ "relax: " <> show (DG.vidInt v)
                 forM_ edgeList relax
                 go state graph
 
