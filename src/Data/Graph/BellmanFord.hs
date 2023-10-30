@@ -20,7 +20,6 @@ import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import qualified Data.Graph.Cycle                   as C
-import           Control.Monad.ST                   (ST)
 import           Data.Array.ST                      (STArray, STUArray)
 import qualified Data.Queue                         as Q
 import qualified Data.Primitive.MutVar              as MV
