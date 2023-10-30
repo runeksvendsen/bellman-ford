@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 module Dijkstra.Spec
 ( spec
 )
@@ -24,52 +25,90 @@ import Data.Bifunctor (bimap)
 
 
 spec :: Tasty.TestTree
-spec = Tasty.testGroup "Dijkstra"
-    [ Tasty.testGroup "same result as BellmanFord"
-        [ QS.testPropertyQC "for arbitrary edge list" $ \edges ->
-            sameResultAsBellmanFord (+) 0 (map nonNegativeWeight edges)
-        , QS.testPropertyQC "for arbitrary graph" $ do
-            edges <- arbitraryGraph QC.getNonNegative
-            sameResultAsBellmanFord (+) 0 edges
+spec =
+    Tasty.testGroup "same result as BellmanFord" $
+        [ Tasty.testGroup "all paths from source" $
+            mkTests
+                Dijkstra.dijkstra
+                (Dijkstra.pathTo . snd)
+        , Tasty.testGroup "only source to target" $
+            mkTests
+                (const $ pure ())
+                (\srcDst -> Dijkstra.dijkstraSourceSink srcDst >> Dijkstra.pathTo (snd srcDst))
         ]
-    ]
+    where
+        mkTests
+            :: ( v ~ String
+               , meta ~ Double
+               )
+            => (forall s. String -> Dijkstra.Dijkstra s v meta ()) -- ^ arg: src
+            -> (forall s. (String, String) -> Dijkstra.Dijkstra s v meta (Maybe [Lib.IdxEdge v meta])) -- ^ arg: (src, dst)
+            -> [Tasty.TestTree]
+        mkTests dijkstraInitSrc dijkstraSpTo =
+            [ QS.testPropertyQC "for arbitrary edge list" $ \edges ->
+                sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo (+) 0 (map nonNegativeWeight edges)
+            , QS.testPropertyQC "for arbitrary graph" $ do
+                edges <- arbitraryGraph QC.getNonNegative
+                sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo (+) 0 edges
+            ]
 
 sameResultAsBellmanFord
-    :: (Double -> Double -> Double)
+    :: ( v ~ String
+       , meta ~ Double
+       )
+    => (forall s. String -> Dijkstra.Dijkstra s v meta ())
+    -- ^ Do initialization for new source vertex (arg: src)
+    -> (forall s. (String, String) -> Dijkstra.Dijkstra s v meta (Maybe [Lib.IdxEdge v meta]))
+    -- ^ Return a shortest path from src to dst (arg: (src, dst))
+    -> (Double -> Double -> Double)
     -> Double
     -> [TestEdge]
     -> QC.Gen QC.Property
-sameResultAsBellmanFord combine zero edges = do
+sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo combine zero edges = do
     shuffledEdges <- QC.shuffle edges
     let result = ST.runST $ do
             graph <- Lib.fromEdges shuffledEdges
             graphCopy <- copy graph
             vertices <- Lib.vertexLabels graph
             forM vertices $ \source -> do
-                dijstraPaths <- allShortestPathsFromSource
-                    graph source vertices Dijkstra.runDijkstra Dijkstra.dijkstra Dijkstra.pathTo
-                bfPaths <- allShortestPathsFromSource
-                    graphCopy source vertices BellmanFord.runBF BellmanFord.bellmanFord BellmanFord.pathTo
+                dijstraPaths <- Dijkstra.runDijkstra graph (\weight edge -> weight `combine` Lib.weight edge) zero $ do
+                    dijkstraInitSrc source
+                    forM vertices $ \target -> do
+                        mRes <- dijkstraSpTo (source, target)
+                        forM mRes $ \res -> pure (source, target, res)
+                bfPaths <- BellmanFord.runBF graphCopy (\weight edge -> weight `combine` Lib.weight edge) zero $ do
+                    BellmanFord.bellmanFord source
+                    forM vertices $ \target -> do
+                        mRes <- BellmanFord.pathTo target
+                        forM mRes $ \res -> pure (source, target, res)
                 pure (dijstraPaths, bfPaths)
     pure $ QC.property $ forM_ result $ \(dijstraPaths, bfPaths) -> do
         let resultPairs = zip dijstraPaths bfPaths
         unless (length resultPairs == length dijstraPaths) $
             fail $ "BUG: sameResultAsBellmanFord: non-equal resultPairs length: " <> show (dijstraPaths, bfPaths)
-        forM resultPairs $ \(dijstraPath, bfPath) -> do
+        forM resultPairs $ \(dijkstraPath, bfPath) -> do
             let pathWeight' mPath =
                     let getPath (_, _, edgeList) = edgeList
                     in pathWeight . getPath <$> mPath
             -- We may find two different paths, but the "length" (cumulative weight) of the two paths must be equal (except floating point errors)
-            let pathLengths = bimap pathWeight' pathWeight' $ (dijstraPath, bfPath)
+            let pathLengths = bimap pathWeight' pathWeight' $ (dijkstraPath, bfPath)
             unless (uncurry mDoubleEqual pathLengths) $
                 expectationFailure $ unlines
-                    [ unwords ["Shortest paths not of equal length. Length:", show pathLengths]
+                    [ unwords
+                        [ "Shortest paths not of equal length. Dijkstra length:"
+                        , show (pathWeight' dijkstraPath) <> ","
+                        , "Bellman-Ford length:"
+                        , show $ pathWeight' bfPath
+                        ]
                     , displayPath "BellmanFord" bfPath
-                    , displayPath "Dijkstra" dijstraPath
+                    , displayPath "Dijkstra" dijkstraPath
                     ]
     where
         displayPath name mPath =
-            maybe "Nothing" (\(src, dst, path) -> unlines $ (name <> ": " <> src <> "->" <> dst) : (map show path)) mPath
+            let mkDescr (src, dst, path) = unlines $
+                    let fromTo = src <> "->" <> dst
+                    in unwords ["Edges on", name, "path (" <> fromTo <> "): "] : map show path
+            in maybe "Nothing" mkDescr mPath
 
         copy g = Lib.freeze g >>= Lib.thaw
 
@@ -83,27 +122,3 @@ sameResultAsBellmanFord combine zero edges = do
 
         epsilon :: Double
         epsilon = 1.0e-13
-
-        allShortestPathsFromSource
-            :: Monad m
-            => Lib.Digraph s String Double
-            -> String
-            -> [String]
-            -> (forall a.
-                   Lib.Digraph s String Double
-                -> (Double -> Double -> Double)
-                -> Double
-                -> m a
-                -> ST s a
-               )
-            -> (String -> m ())
-            -> (   String
-                -> m (Maybe [Lib.IdxEdge String Double])
-               )
-            -> ST s [Maybe (String, String, [Lib.IdxEdge String Double])]
-        allShortestPathsFromSource graph source vertices runner findShortestPaths pathTo =
-            runner graph (\weight edge -> weight `combine` Lib.weight edge) zero $ do
-                findShortestPaths source
-                forM vertices $ \target -> do
-                    mRes <- pathTo target
-                    forM mRes $ \res -> pure (source, target, res)
