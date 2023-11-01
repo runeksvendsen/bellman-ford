@@ -139,7 +139,7 @@ resetState mutState = do
 
 -- | NB: has no effect if the source vertex does not exist
 bellmanFord
-    :: (Ord v, Hashable v, Show v, Show meta, Eq meta, IsWeight weight s, Ord weight, Show weight)
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta, IsWeight weight s, Eq weight, Show weight)
     => v    -- ^ Source vertex
     -> BF s v weight meta ()
 bellmanFord src = do
@@ -166,19 +166,20 @@ bellmanFord src = do
 
 -- | NB: returns 'Nothing' if the target vertex does not exist
 pathTo
-    :: (Show v, Eq v, Hashable v, Show meta, Ord weight, IsWeight weight s)
+    :: (Show v, Eq v, Hashable v, Show meta, IsWeight weight s)
     => v                        -- ^ Target vertex
     -> BF s v weight meta (Maybe [DG.IdxEdge v meta])
 pathTo target = do
     graph <- R.asks sGraph
     infinity <- R.asks sInfinity
+    isLessThan <- R.asks sIsLessThan
     targetVertexM <- fmap DG.vidInt <$> R.lift (DG.lookupVertex graph target)
-    maybe (return Nothing) (findPath infinity graph) targetVertexM
+    maybe (return Nothing) (findPath isLessThan infinity graph) targetVertexM
   where
-    findPath infinity graph targetVertex = do
+    findPath isLessThan infinity graph targetVertex = do
         negativeCycle >>= maybe (return ()) failNegativeCycle -- Check for negative cycle
         state <- R.asks sMState
-        pathExists <- R.lift $ hasPathTo infinity state targetVertex
+        pathExists <- R.lift $ hasPathTo isLessThan infinity state targetVertex
         R.lift $ if pathExists
             then Just <$> go graph state [] targetVertex
             else return Nothing
@@ -193,18 +194,19 @@ pathTo target = do
 
 hasPathTo
     :: forall weight s v meta m .
-       (Ord weight, IsWeight weight s, m ~ ST s)
-    => weight
+       (IsWeight weight s, m ~ ST s)
+    => (weight -> weight -> Bool)
+    -> weight
     -> MState s v weight meta
     -> Int
     -> ST s Bool
-hasPathTo infinity state target =
-    (< infinity) <$> Weight.readArray @weight (distTo state) target
+hasPathTo isLessThan infinity state target =
+    (`isLessThan` infinity) <$> Weight.readArray @weight (distTo state) target
 
 {-# SCC relax #-}
 -- |
 relax
-    :: (Show v, Ord v, Hashable v, Show meta, Ord weight, IsWeight weight s)
+    :: (Show v, Ord v, Hashable v, Show meta, IsWeight weight s)
     => DG.VertexId
     -> BF s v weight meta ()
 relax vertex = do
@@ -317,7 +319,7 @@ dequeueVertex state = do
 -- (ii)  for all edges e = v->w:            distTo[w] <= distTo[v] + e.weight()
 -- (ii') for all edges e = v->w on the SPT: distTo[w] == distTo[v] + e.weight()
 check
-    :: (Eq meta, Show meta, Show v, Eq v, Ord weight, Show weight, IsWeight weight s)
+    :: (Eq meta, Show meta, Show v, Eq v, Eq weight, Show weight, IsWeight weight s)
     => Int
     -> BF s v weight meta Bool
 check source = do
@@ -328,15 +330,15 @@ check source = do
     isLessThan <- R.asks sIsLessThan
     state      <- R.asks sMState
     ifM hasNegativeCycle
-        (checkNegativeCycle zero calcWeight state)
+        (checkNegativeCycle isLessThan zero calcWeight state)
         (checkNoCycle state graph zero infinity calcWeight isLessThan)
     return True
   where
-    checkNegativeCycle zero calcWeight state = do
+    checkNegativeCycle isLessThan zero calcWeight state = do
         negativeCycle' <- MV.readMutVar (cycle state)
         -- check that weight of negative cycle is negative
         let weight = foldr (flip calcWeight . DG.eMeta) zero negativeCycle'
-        when (weight >= zero) $
+        when (zero `isLessThan` weight || weight == zero) $
             error $ unlines [ "negative cycle is non-negative"
                             , printf "weight: %s" (show weight)
                             , printf "edges: %s" (show negativeCycle')
