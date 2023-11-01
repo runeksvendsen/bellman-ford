@@ -6,15 +6,12 @@ module Data.Graph.SP.Double
 )
 where
 
-import Prelude
-import Data.Graph.IsWeight
-
 -- | Use this as the @isLessThan@ function when using 'Double' as edge weight.
 --
 --   Necessary because of floating point rounding errors.
 --   Cf. https://stackoverflow.com/a/65051801/700597
-isLessThan :: Unboxed Double -> Unboxed Double -> Bool
-isLessThan (Unboxed a) (Unboxed b) =
+isLessThan :: Double -> Double -> Bool
+isLessThan a b =
     a + epsilon < b
     where
         epsilon :: Double

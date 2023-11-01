@@ -9,23 +9,22 @@ module Data.Graph.BellmanFord.Double
 , pathTo
 , negativeCycle
   -- * Extras
-, BF.getGraph
+, UnboxedBF.getGraph
   -- * Re-exports
 , E.DirectedEdge(..)
 )
 where
 
 import Prelude
-import qualified Data.Graph.BellmanFord as BF
+import qualified Data.Graph.BellmanFord.Unboxed as UnboxedBF
 import qualified Data.Graph.SP.Double as DoubleSP
 import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
-import           Data.Graph.IsWeight
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import qualified Data.List.NonEmpty                 as NE
 
-type BF s v meta = BF.BF s v (Unboxed Double) meta
+type BF s v meta = UnboxedBF.BF s v Double meta
 
 
 -- |
@@ -48,12 +47,12 @@ runBF
     -> BF s v meta a
     -> ST s a
 runBF graph weightCombine zero = do
-    BF.runBF
+    UnboxedBF.runBF
         graph
-        (\(Unboxed weight) meta -> Unboxed $ weightCombine weight meta)
+        weightCombine
         DoubleSP.isLessThan
-        (Unboxed zero)
-        (Unboxed (1/0))
+        zero
+        (1/0)
 
 -- | NB: has no effect if the source vertex does not exist
 bellmanFord
@@ -61,7 +60,7 @@ bellmanFord
     => v    -- ^ Source vertex
     -> BF s v meta ()
 bellmanFord =
-    BF.bellmanFord
+    UnboxedBF.bellmanFord
 
 -- | NB: returns 'Nothing' if the target vertex does not exist
 pathTo
@@ -69,10 +68,10 @@ pathTo
     => v                        -- ^ Target vertex
     -> BF s v meta (Maybe [DG.IdxEdge v meta])
 pathTo =
-    BF.pathTo
+    UnboxedBF.pathTo
 
 -- | Get negative cycle ('Nothing' in case there's no negative cycle)
 negativeCycle
     :: BF s v meta (Maybe (NE.NonEmpty (DG.IdxEdge v meta)))
 negativeCycle =
-    BF.negativeCycle
+    UnboxedBF.negativeCycle
