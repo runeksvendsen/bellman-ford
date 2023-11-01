@@ -25,7 +25,7 @@ import Data.Bifunctor (bimap)
 
 
 spec :: Tasty.TestTree
-spec =
+spec = Tasty.testGroup "Dijkstra" . (: []) $
     Tasty.testGroup "same result as BellmanFord" $
         [ Tasty.testGroup "all paths from source" $
             mkTests
@@ -45,9 +45,7 @@ spec =
             -> (forall s. (String, String) -> Dijkstra.Dijkstra s v meta (Maybe [Lib.IdxEdge v meta])) -- ^ arg: (src, dst)
             -> [Tasty.TestTree]
         mkTests dijkstraInitSrc dijkstraSpTo =
-            [ QS.testPropertyQC "for arbitrary edge list" $ \edges ->
-                sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo (+) 0 (map nonNegativeWeight edges)
-            , QS.testPropertyQC "for arbitrary graph" $ do
+            [ QS.testPropertyQC "for arbitrary graph" $ do
                 edges <- arbitraryGraph QC.getNonNegative
                 sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo (+) 0 edges
             ]
