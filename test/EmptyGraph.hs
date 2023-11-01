@@ -7,7 +7,7 @@ import Types.Edge
 
 import Data.Graph.Prelude (when, forM_)
 import qualified Data.Graph.Digraph                 as Lib
-import qualified Data.Graph.BellmanFord             as Lib
+import qualified Data.Graph.BellmanFord.Double      as Lib
 
 import Control.Monad.ST (ST)
 import Control.Monad.Trans.Class (MonadTrans(lift))

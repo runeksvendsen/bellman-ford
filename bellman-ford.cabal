@@ -22,12 +22,15 @@ extra-source-files:
 library
   exposed-modules:
       Data.Graph.BellmanFord
+      Data.Graph.BellmanFord.Double
       Data.Graph.Dijkstra
       Data.Graph.Cycle
       Data.Graph.Digraph
       Data.Graph.Edge
       Data.Graph.Prelude
       Data.Graph.Util
+      Data.Graph.IsWeight
+      Data.Graph.SP.Double
       Data.Queue
       Data.Stack
       Data.IndexMinPQ

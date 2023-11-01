@@ -13,7 +13,7 @@ import           Types.Edge
 import           Types.Cycle
 import qualified EmptyGraph
 import qualified Data.Graph.Digraph                 as Lib
-import qualified Data.Graph.BellmanFord             as Lib
+import qualified Data.Graph.BellmanFord.Double      as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()

@@ -12,7 +12,7 @@ import           Data.Graph.Prelude
 import           Types.Edge
 import           Types.Graph
 import qualified Data.Graph.Digraph                 as Lib
-import qualified Data.Graph.BellmanFord             as BellmanFord
+import qualified Data.Graph.BellmanFord.Double      as BellmanFord
 import qualified Data.Graph.Dijkstra                as Dijkstra
 
 import qualified Control.Monad.ST                   as ST
