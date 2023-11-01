@@ -60,7 +60,7 @@ sameResultAsBellmanFord
     -- ^ Return a shortest path from src to dst (arg: (src, dst))
     -> (Double -> Double -> Double)
     -> Double
-    -> [TestEdge]
+    -> [TestEdge Double]
     -> QC.Gen QC.Property
 sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo combine zero edges = do
     shuffledEdges <- QC.shuffle edges
@@ -69,12 +69,12 @@ sameResultAsBellmanFord dijkstraInitSrc dijkstraSpTo combine zero edges = do
             graphCopy <- copy graph
             vertices <- Lib.vertexLabels graph
             forM vertices $ \source -> do
-                dijstraPaths <- Dijkstra.runDijkstra graph (\weight edge -> weight `combine` Lib.weight edge) zero $ do
+                dijstraPaths <- Dijkstra.runDijkstra graph combine zero $ do
                     dijkstraInitSrc source
                     forM vertices $ \target -> do
                         mRes <- dijkstraSpTo (source, target)
                         forM mRes $ \res -> pure (source, target, res)
-                bfPaths <- BellmanFord.runBF graphCopy (\weight edge -> weight `combine` Lib.weight edge) zero $ do
+                bfPaths <- BellmanFord.runBF graphCopy combine zero $ do
                     BellmanFord.bellmanFord source
                     forM vertices $ \target -> do
                         mRes <- BellmanFord.pathTo target

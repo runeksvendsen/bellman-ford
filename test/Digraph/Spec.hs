@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeApplications #-}
 module Digraph.Spec
 ( spec
 )
@@ -13,7 +14,6 @@ import qualified Util.QuickSmall                    as QS
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as Lib
 import           Data.List                          (groupBy, sortOn, sort)
-import           Control.Monad.ST                   (stToIO)
 
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations.Pretty            (Expectation, shouldBe)
@@ -23,21 +23,21 @@ import qualified Test.Tasty                         as Tasty
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Digraph" $
     [ Tasty.testGroup "removeEdge"
-       [ QS.testProperty "removes all vertices' outgoing edges" addRemoveEdges
+       [ QS.testProperty "removes all vertices' outgoing edges" (addRemoveEdges @Double)
        ]
     , Tasty.testGroup "updateEdge"
-       [ QS.testProperty "updates edges present in 'outgoingEdges'" updateEdges
+       [ QS.testProperty "updates edges present in 'outgoingEdges'" (updateEdges @Double)
        ]
     , Tasty.testGroup "insertEdge"
-       [ QS.testProperty "all edges present in 'outgoingEdges'" addEdgesCheckInOutgoing
+       [ QS.testProperty "all edges present in 'outgoingEdges'" (addEdgesCheckInOutgoing @Double)
        ]
     , Tasty.testGroup "edgeCount"
-       [ QS.testProperty "== outgoing edge count for all vertices" edgeCountEqualsOutgoingCountForallVertices
+       [ QS.testProperty "== outgoing edge count for all vertices" (edgeCountEqualsOutgoingCountForallVertices @Double)
        ]
     ]
 
 addRemoveEdges
-    :: [TestEdge]
+    :: [TestEdge weight]
     -> Expectation
 addRemoveEdges edges = do
     (graph, vertices) <- stToIO createRemove
@@ -53,7 +53,8 @@ addRemoveEdges edges = do
         return (graph, vertices)
 
 updateEdges
-    :: [TestEdge]
+    :: (Ord weight, Show weight, Num weight)
+    => [TestEdge weight]
     -> IO ()
 updateEdges edges = do
     graph <- stToIO $ Lib.fromEdges edges
@@ -65,7 +66,8 @@ updateEdges edges = do
         sort (map getWeight (removeDuplicateSrcDst $ map Util.fromIdxEdge outgoingEdges'))
 
 addEdgesCheckInOutgoing
-    :: [TestEdge]
+    :: (Ord weight, Show weight)
+    => [TestEdge weight]
     -> Expectation
 addEdgesCheckInOutgoing edges = do
     let sortedEdges = sort edges
@@ -75,7 +77,7 @@ addEdgesCheckInOutgoing edges = do
     outgoingEdges <- stToIO $ collectOutgoing graph
     sort (map Util.fromIdxEdge outgoingEdges) `shouldBe` removeDuplicateSrcDst sortedEdges
 
-removeDuplicateSrcDst :: [TestEdge] -> [TestEdge]
+removeDuplicateSrcDst :: [TestEdge weight] -> [TestEdge weight]
 removeDuplicateSrcDst =
     map head . groupBy sameSrcDst . sortOn (\e -> (Lib.fromNode e, Lib.toNode e))
   where
@@ -92,7 +94,7 @@ collectOutgoing graph = do
         return $ outEdges : accum
 
 edgeCountEqualsOutgoingCountForallVertices
-    :: [TestEdge]
+    :: [TestEdge weight]
     -> Expectation
 edgeCountEqualsOutgoingCountForallVertices edges = do
     graph <- stToIO $ Lib.fromEdges edges

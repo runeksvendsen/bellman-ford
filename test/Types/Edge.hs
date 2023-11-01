@@ -6,7 +6,6 @@ module Types.Edge
 ( TestEdge(..)
 , PositiveWeight(..)
 , NonNegativeWeight(..)
-, Unweighted(..)
 , NegLog(..)
 )
 where
@@ -16,49 +15,36 @@ import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 
 
-data TestEdge = TestEdge
+data TestEdge weight = TestEdge
     { getFrom     :: String
     , getTo       :: String
-    , getWeight   :: Double
+    , getWeight   :: weight
     } deriving (Eq, Show, Ord)
 
-instance Lib.DirectedEdge TestEdge String Double where
+instance Lib.DirectedEdge (TestEdge weight) String weight where
    fromNode = getFrom
    toNode = getTo
    metaData = getWeight
 
-instance Lib.HasWeight Double Double where
-   weight = id
-
-instance Monad m => SS.Serial m TestEdge where
+instance (Monad m, SS.Serial m weight) => SS.Serial m (TestEdge weight) where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
 
-instance QC.Arbitrary TestEdge where
+instance QC.Arbitrary weight => QC.Arbitrary (TestEdge weight) where
    arbitrary = TestEdge <$> QC.arbitrary <*> QC.arbitrary <*> QC.arbitrary
 
-newtype Unweighted a = Unweighted { unweighted :: a }
-   deriving (Eq, Show, Ord)
-
-instance Monad m => SS.Serial m (Unweighted TestEdge) where
-   series =
-      Unweighted <$> (TestEdge <$> SS.series <*> SS.series <*> return 0.0)
-
-instance QC.Arbitrary (Unweighted TestEdge) where
-   arbitrary = Unweighted <$> (TestEdge <$> QC.arbitrary <*> QC.arbitrary <*> return 0.0)
-
-newtype PositiveWeight = PositiveWeight { positiveWeight :: TestEdge }
+newtype PositiveWeight weight = PositiveWeight { positiveWeight :: TestEdge weight }
    deriving (Eq, Ord)
 
-instance Show PositiveWeight where
+instance Show weight => Show (PositiveWeight weight) where
    show = show . positiveWeight
 
-instance Monad m => SS.Serial m PositiveWeight where
+instance (Monad m, Num weight, SS.Serial m weight, Num weight, Ord weight) => SS.Serial m (PositiveWeight weight) where
    series = do
       SS.Positive weight' <- SS.series
-      edge <- SS.series
+      edge :: TestEdge weight <- SS.series
       return $ PositiveWeight $ edge { getWeight = weight' }
 
-instance QC.Arbitrary PositiveWeight where
+instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (PositiveWeight weight) where
    arbitrary =
       let positiveEdge =
             TestEdge <$> QC.arbitrary
@@ -66,19 +52,19 @@ instance QC.Arbitrary PositiveWeight where
                      <*> fmap QC.getPositive QC.arbitrary
       in PositiveWeight <$> positiveEdge
 
-newtype NonNegativeWeight = NonNegativeWeight { nonNegativeWeight :: TestEdge }
+newtype NonNegativeWeight weight = NonNegativeWeight { nonNegativeWeight :: TestEdge weight }
    deriving (Eq, Ord)
 
-instance Show NonNegativeWeight where
+instance Show weight => Show (NonNegativeWeight weight) where
    show = show . nonNegativeWeight
 
-instance Monad m => SS.Serial m NonNegativeWeight where
+instance (Monad m, Num weight, Ord weight, SS.Serial m weight) => SS.Serial m (NonNegativeWeight weight) where
    series = do
       SS.NonNegative weight' <- SS.series
-      edge <- SS.series
+      edge :: TestEdge weight <- SS.series
       return $ NonNegativeWeight $ edge { getWeight = weight' }
 
-instance QC.Arbitrary NonNegativeWeight where
+instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (NonNegativeWeight weight) where
    arbitrary =
       let nonNegativeEdge =
             TestEdge <$> QC.arbitrary
@@ -91,7 +77,7 @@ newtype NegLog a = NegLog { getLog :: a }
    deriving (Eq, Show, Ord)
 
 -- | Same instance as for 'TestEdge'
-instance Lib.DirectedEdge (NegLog TestEdge) String Double where
+instance Lib.DirectedEdge (NegLog (TestEdge weight)) String weight where
    fromNode = fromNode . getLog
    toNode = toNode . getLog
    metaData = metaData . getLog

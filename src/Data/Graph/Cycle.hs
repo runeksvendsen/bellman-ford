@@ -12,7 +12,6 @@ import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
-import           Control.Monad.ST                   (ST)
 import qualified Data.Array.ST                      as ST
 import qualified Data.Primitive.MutVar              as MV
 import qualified Data.Array.MArray                  as Arr

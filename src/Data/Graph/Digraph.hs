@@ -41,7 +41,6 @@ module Data.Graph.Digraph
 , eTo
 , eFromIdx
 , eToIdx
-, HasWeight(..)
   -- * Internal
 , emptyClone
   -- * Re-exports
@@ -80,9 +79,6 @@ instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
    fromNode = _eFrom
    toNode = _eTo
    metaData = eMeta
-
-class HasWeight a weight | a -> weight where
-    weight :: a -> weight
 
 newtype VertexId = VertexId { _vidInt :: Int }
     deriving (Eq, Show, Ord, Hashable, Ix, NFData)

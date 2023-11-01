@@ -7,6 +7,7 @@ module Data.Graph.BellmanFord.Unboxed
 ( -- * Monad
   runBF
 , BF
+, Unboxable
   -- * Algorithm
 , bellmanFord
   -- * Queries

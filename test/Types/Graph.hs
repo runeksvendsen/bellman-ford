@@ -16,10 +16,10 @@ import qualified Test.Tasty.QuickCheck as QC
 
 
 arbitraryGraph
-  :: QC.Arbitrary a => (a -> Double) -> QC.Gen [TestEdge]
+  :: QC.Arbitrary a => (a -> weight) -> QC.Gen [TestEdge weight]
 arbitraryGraph graphModifier = do
   QC.NonEmpty nodesList <- QC.arbitrary
-  weights <- QC.arbitrary
+  weights :: [weight] <- QC.arbitrary
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
   forM weights $ \weight ->
     TestEdge

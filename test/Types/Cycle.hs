@@ -18,20 +18,21 @@ import qualified Control.Exception                    as Ex
 import           Data.List                            (sort, nub)
 
 
-newtype EdgeCycle = EdgeCycle { getEdgeCycle :: NE.NonEmpty TestEdge }
+newtype EdgeCycle weight = EdgeCycle { getEdgeCycle :: NE.NonEmpty (TestEdge weight) }
    deriving (Eq, Show, Ord)
 
-instance Monad m => SS.Serial m EdgeCycle where
+instance (Monad m, SS.Serial m weight, Show weight) => SS.Serial m (EdgeCycle weight) where
    series = edgeCycle
 
-instance QC.Arbitrary EdgeCycle where
+instance (QC.Arbitrary weight, Show weight) => QC.Arbitrary (EdgeCycle weight) where
    arbitrary = edgeCycle
 
 edgeCycle
    :: ( GenData m [String]
-      , GenData m Double
+      , GenData m weight
+      , Show weight
       )
-   => m EdgeCycle
+   => m (EdgeCycle weight)
 edgeCycle = do
    edgeList <- edgeCycleEdges
    let isValidCycle = isNothing . verifyCycle . NE.toList
@@ -39,9 +40,9 @@ edgeCycle = do
 
 edgeCycleEdges
    :: ( GenData m [String]
-      , GenData m Double
+      , GenData m weight
       )
-   => m (NE.NonEmpty TestEdge)
+   => m (NE.NonEmpty (TestEdge weight))
 edgeCycleEdges = do
     -- Data.Graph.Cycle does not support self-loops, so we
     --  make sure to generate at least 2 vertices
@@ -72,19 +73,21 @@ uniqueElemList =
    containsUniqueElements list =
       (length . nub . sort $ list) == length list
 
-newtype NegativeCycle = NegativeCycle { getNegativeCycle :: NE.NonEmpty TestEdge }
+newtype NegativeCycle weight = NegativeCycle { getNegativeCycle :: NE.NonEmpty (TestEdge weight) }
    deriving (Eq, Show, Ord)
 
-instance Monad m => SS.Serial m NegativeCycle where
+instance (Monad m, SS.Serial m weight, Show weight, Ord weight, Num weight) => SS.Serial m (NegativeCycle weight) where
    series = negativeCycle
 
-instance QC.Arbitrary NegativeCycle where
+instance (QC.Arbitrary weight, Show weight, Ord weight, Num weight) => QC.Arbitrary (NegativeCycle weight) where
    arbitrary = negativeCycle
 
 negativeCycle
-   :: ( GenData m EdgeCycle
+   :: ( GenData m (EdgeCycle weight)
+      , Ord weight
+      , Num weight
       )
-   => m NegativeCycle
+   => m (NegativeCycle weight)
 negativeCycle =
     NegativeCycle . getEdgeCycle <$> genData `suchThat` negativeWeightSum
   where
