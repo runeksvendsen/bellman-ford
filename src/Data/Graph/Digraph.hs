@@ -287,11 +287,8 @@ edgeCount
 edgeCount dg@(Digraph _ vertexArray _) = do
     vertexIdList <- vertices dg
     outEdgeMapList <- mapM (Arr.readArray vertexArray) vertexIdList
-    countList <- mapM countEdges outEdgeMapList
-    return $ sum countList
-  where
-    countEdges ht =
-        HT.foldM (\innerCount _ -> return $ innerCount + 1) 0 ht
+    countList <- mapM HT.size outEdgeMapList
+    return $ fromIntegral $ sum countList
 
 -- | All the vertices in the graph
 vertices

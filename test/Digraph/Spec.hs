@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE BangPatterns #-}
 module Digraph.Spec
 ( spec
 )
@@ -113,4 +114,4 @@ edgeCountTest dg =
   where
     lookupCount totalCount vertex =
         Lib.outgoingEdges dg vertex >>=
-            foldM (\innerCount _ -> return $ innerCount+1) totalCount
+            foldM (\ !innerCount _ -> return $ innerCount+1) totalCount
