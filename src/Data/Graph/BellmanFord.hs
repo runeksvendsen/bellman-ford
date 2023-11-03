@@ -365,7 +365,14 @@ check source = do
                 distToV <- Weight.readArray (distTo state) (DG.vidInt v)
                 distToW <- Weight.readArray (distTo state) (DG.vidInt w)
                 when (calcWeight distToV (DG.eMeta e) `isLessThan` distToW) $
-                    error $ "edge " ++ show e ++ " not relaxed"
+                    error $ unwords
+                        [ "edge"
+                        , show e
+                        , "not relaxed."
+                        , "distToV:", show distToV <> ","
+                        , "eMeta:", show (DG.eMeta e) <> ","
+                        , "distToW:", show distToW
+                        ]
         -- check that all edges e = v->w on SPT satisfy distTo[w] == distTo[v] + e.weight()
         forM_ (map DG.vidInt vertices) $ \w -> do
             edgeM <- Arr.readArray (edgeTo state) w
