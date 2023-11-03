@@ -27,67 +27,88 @@ import qualified System.Random.Shuffle              as Shuffle
 import qualified Data.Graph.SP.Double as Double
 import qualified Test.QuickCheck as QC
 import qualified Test.SmallCheck.Series as SS
-import Data.Int (Int64)
-
+import Data.Int (Int64, Int32)
+import IndexMinPQ.Util (Positive, unPositive)
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "BellmanFord"
     [ Tasty.testGroup "edge weight: Double"
-        [ testPassesCheck Double.isLessThan (1/0)
-        , testFindsNegativeCycle Double.isLessThan (1/0)
-        , testRemovePaths Double.isLessThan (1/0)
+        [ testPassesCheck id Double.isLessThan (1/0)
+        , testFindsNegativeCycle id Double.isLessThan (1/0)
+        , testRemovePaths id Double.isLessThan (1/0)
         ]
     , Tasty.testGroup "edge weight: Int64"
-        [ testPassesCheck int64IsLessThan maxBound
-        , testFindsNegativeCycle int64IsLessThan maxBound
-        , testRemovePaths int64IsLessThan maxBound
+        [ testPassesCheck boundedInt64 int64IsLessThan maxBound
+        , testFindsNegativeCycle boundedInt64 int64IsLessThan maxBound
+        , testRemovePaths boundedInt64 int64IsLessThan maxBound
         ]
     ]
     where
         int64IsLessThan :: Int64 -> Int64 -> Bool
         int64IsLessThan = (<)
 
+        boundedInt64 :: BoundedIntegral Int32 Int64 -> Int64
+        boundedInt64 = getBoundedIntegral
+
         testPassesCheck
-            :: forall weight.
+            :: forall weight generatedWeight.
             ( Show weight, Eq weight, Num weight
+            , Show generatedWeight
             , QC.Arbitrary weight
             , SS.Serial IO weight
+            , QC.Arbitrary generatedWeight
+            , SS.Serial IO generatedWeight
             , Lib.Unboxable weight RealWorld
             )
-            => (weight -> weight -> Bool)
+            => (generatedWeight -> weight) -- Allows using e.g. 'Test.QuickCheck.Positive' as weight by passing in 'getPositive' here
+            -> (weight -> weight -> Bool)
             -> weight
             -> Tasty.TestTree
-        testPassesCheck isLessThan infinity = Tasty.testGroup "passes 'check'"
+        testPassesCheck unGeneratedWeight isLessThan infinity = Tasty.testGroup "passes 'check'"
             [ QS.testProperty "additive (all weights)"
-                (\edges -> bellmanFord (+) isLessThan 0 infinity (edges :: [TestEdge weight]))
+                (\edges ->
+                    bellmanFord
+                        (+)
+                        isLessThan
+                        0
+                        infinity
+                        (map (fmap unGeneratedWeight) edges :: [TestEdge weight])
+                )
             , QS.testProperty "multiplicative (positive weights)"
                 True -- TODO: re-enable once https://github.com/runeksvendsen/bellman-ford/issues/5 is fixed
             , QS.testProperty "additive (all weights) -log weight"
                 -- TODO: NegLog?
-                (\edges -> bellmanFord (+) isLessThan 0 infinity (edges :: [TestEdge weight]))
+                (\edges ->
+                    bellmanFord
+                        (+)
+                        isLessThan
+                        0
+                        infinity
+                        (map (fmap unGeneratedWeight) edges :: [TestEdge weight])
+                )
             ]
 
-        testRemovePaths isLessThan infinity = Tasty.testGroup "removePaths"
-            [ QS.testProperty "terminates" $ removePathsTerminates isLessThan infinity
+        testRemovePaths unGeneratedWeight isLessThan infinity = Tasty.testGroup "removePaths"
+            [ QS.testProperty "terminates" $ removePathsTerminates unGeneratedWeight isLessThan infinity
             ]
 
-        testFindsNegativeCycle isLessThan infinity = Tasty.testGroup "finds negative cycle"
+        testFindsNegativeCycle unGeneratedWeight isLessThan infinity = Tasty.testGroup "finds negative cycle"
             [ QS.testProperty "with no other edges in the graph" True -- TODO: re-enable once https://github.com/runeksvendsen/bellman-ford/issues/6 is fixed
             , QS.testProperty "with other (positive-weight) edges in the graph" $
-                findsNegativeCycle isLessThan 0 infinity
+                findsNegativeCycle unGeneratedWeight isLessThan 0 infinity
             ]
-
 
 removePathsTerminates
     :: ( Lib.Unboxable weight RealWorld
        , Show weight, Eq weight, Num weight
        )
-    => (weight -> weight -> Bool)
+    => (generatedWeight -> weight)
+    -> (weight -> weight -> Bool)
     -> weight
-    -> [TestEdge weight]
+    -> [TestEdge generatedWeight]
     -> Expectation
-removePathsTerminates isLessThan infinity edges = do
-    ST.stToIO $ EmptyGraph.removePaths isLessThan 0 infinity edges (getFrom $ edges !! 0)
+removePathsTerminates unGeneratedWeight isLessThan infinity edges = do
+    ST.stToIO $ EmptyGraph.removePaths isLessThan 0 infinity (map (fmap unGeneratedWeight) edges) (getFrom $ edges !! 0)
     (0 :: Int) `shouldSatisfy` const True
 
 bellmanFord
@@ -116,15 +137,16 @@ bellmanFord combine isLessThan zero infinity edges = do
 --    to the list of input negative-cycle edges.
 findsNegativeCycle
     :: (Lib.Unboxable weight RealWorld, Eq weight, Show weight, Num weight)
-    => (weight -> weight -> Bool)
+    => (generatedWeight -> weight)
+    -> (weight -> weight -> Bool)
     -> weight
     -> weight
-    -> [PositiveWeight weight]
-    -> NegativeCycle weight
+    -> [TestEdge (Positive generatedWeight)]
+    -> NegativeCycle generatedWeight
     -> Expectation
-findsNegativeCycle isLessThan zero infinity positiveEdges (NegativeCycle cycleEdges) = do
-    shuffledPositiveEdges <- Shuffle.shuffleM (map positiveWeight positiveEdges)
-    shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges)
+findsNegativeCycle unGeneratedWeight isLessThan zero infinity positiveEdges (NegativeCycle cycleEdges) = do
+    shuffledPositiveEdges <- Shuffle.shuffleM positiveEdges'
+    shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges')
     graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
@@ -138,9 +160,12 @@ findsNegativeCycle isLessThan zero infinity positiveEdges (NegativeCycle cycleEd
                     , "expected: %s"
                     , "positive edges: %s"
                     ]
-            in expectationFailure $ printf errFormatStr (show cycleEdges) (show positiveEdges)
+            in expectationFailure $ printf errFormatStr (show cycleEdges') (show positiveEdges')
         Just returnedCycle ->
-            map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges)
+            map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges')
+    where
+        positiveEdges' = map (fmap (unGeneratedWeight . unPositive)) positiveEdges
+        cycleEdges' = NE.map (fmap unGeneratedWeight) cycleEdges
 
 fromShuffledEdges
     :: (Ord v, Lib.DirectedEdge edge v weight)
