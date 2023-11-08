@@ -7,7 +7,7 @@ where
 import Data.Int (Int64)
 
 infinity :: Int64
-infinity = maxBound `div` 2
+infinity = maxBound
 
 -- | TODO: docs
 addition :: Int64 -> Int64 -> Int64
