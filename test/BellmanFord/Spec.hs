@@ -31,6 +31,7 @@ import qualified Test.QuickCheck as QC
 import qualified Test.SmallCheck.Series as SS
 import Data.Int (Int64, Int32)
 import IndexMinPQ.Util (Positive, unPositive)
+import qualified Data.Graph.SP.Int64
 
 type RunBF weight s v meta a =
        (Lib.Unboxable weight s, Show meta, Show v, Show weight)
@@ -45,24 +46,25 @@ type RunBF weight s v meta a =
 spec :: (forall weight s v meta a. RunBF weight s v meta a) -> Tasty.TestTree
 spec runBF = Tasty.testGroup "BellmanFord"
     [ Tasty.testGroup "Double"
-        [ testPassesCheck id Double.isLessThan (1/0)
-        , testFindsNegativeCycle id Double.isLessThan (1/0)
-        , testRemovePaths id Double.isLessThan (1/0)
-            [TestEdge {getFrom = "from_double", getTo = "to_double", getWeight = 2}]
+        [ testPassesCheck id (+) Double.isLessThan (1/0)
+        , testFindsNegativeCycle id (+) Double.isLessThan (1/0)
+        , testRemovePaths id (+) Double.isLessThan (1/0)
         ]
     , Tasty.testGroup "Int64"
-        [ testPassesCheck boundedInt64 int64IsLessThan int64Infinity
-        , testFindsNegativeCycle boundedInt64 int64IsLessThan int64Infinity
-        , testRemovePaths boundedInt64 int64IsLessThan int64Infinity
-            [TestEdge {getFrom = "from_int", getTo = "to_int", getWeight = 2}]
+        [ testPassesCheck boundedInt64 int64Addition int64IsLessThan int64Infinity
+        , testFindsNegativeCycle boundedInt64 int64Addition int64IsLessThan int64Infinity
+        , testRemovePaths boundedInt64 int64Addition int64IsLessThan int64Infinity
         ]
     ]
     where
         int64IsLessThan :: Int64 -> Int64 -> Bool
         int64IsLessThan = (<)
 
+        int64Addition :: Int64 -> Int64 -> Int64
+        int64Addition = Data.Graph.SP.Int64.addition
+
         int64Infinity :: Int64
-        int64Infinity = maxBound `div` 2 -- TODO: docs (why half maxBound?)
+        int64Infinity = Data.Graph.SP.Int64.infinity
 
         boundedInt64 :: BoundedIntegral Int32 Int64 -> Int64
         boundedInt64 = getBoundedIntegral
@@ -78,15 +80,16 @@ spec runBF = Tasty.testGroup "BellmanFord"
             , Lib.Unboxable weight RealWorld
             )
             => (generatedWeight -> weight) -- Allows using e.g. 'Test.QuickCheck.Positive' as weight by passing in 'getPositive' here
+            -> (weight -> weight -> weight)
             -> (weight -> weight -> Bool)
             -> weight
             -> Tasty.TestTree
-        testPassesCheck unGeneratedWeight isLessThan infinity = Tasty.testGroup "passes 'check'"
+        testPassesCheck unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "passes 'check'"
             [ QS.testProperty "additive (all weights)"
                 (\edges ->
                     bellmanFord
                         runBF
-                        (+)
+                        combine
                         isLessThan
                         0
                         infinity
@@ -97,14 +100,14 @@ spec runBF = Tasty.testGroup "BellmanFord"
               -- TODO: NegLog?
             ]
 
-        testRemovePaths unGeneratedWeight isLessThan infinity edges = Tasty.testGroup "removePaths"
-            [ QS.testProperty "terminates" $ removePathsTerminates runBF unGeneratedWeight isLessThan infinity edges
+        testRemovePaths unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "removePaths"
+            [ QS.testProperty "terminates" $ removePathsTerminates runBF unGeneratedWeight combine isLessThan infinity
             ]
 
-        testFindsNegativeCycle unGeneratedWeight isLessThan infinity = Tasty.testGroup "finds negative cycle"
+        testFindsNegativeCycle unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "finds negative cycle"
             [ QS.testProperty "with no other edges in the graph" True -- TODO: re-enable once https://github.com/runeksvendsen/bellman-ford/issues/6 is fixed
             , QS.testProperty "with other (positive-weight) edges in the graph" $
-                findsNegativeCycle runBF unGeneratedWeight isLessThan 0 infinity
+                findsNegativeCycle runBF unGeneratedWeight combine isLessThan 0 infinity
             ]
 
 removePathsTerminates
@@ -113,15 +116,16 @@ removePathsTerminates
        )
     => (forall weight' s v meta a. RunBF weight' s v meta a)
     -> (generatedWeight -> weight)
+    -> (weight -> weight -> weight)
     -> (weight -> weight -> Bool)
     -> weight
     -> [TestEdge generatedWeight]
     -> Expectation
-removePathsTerminates runBF unGeneratedWeight isLessThan infinity edges = do
+removePathsTerminates runBF unGeneratedWeight combine isLessThan infinity edges = do
     ST.stToIO $ do
         graph <- Lib.fromEdges edges'
         bfAction <- EmptyGraph.removePaths graph (getFrom $ head edges)
-        runBF graph (+) isLessThan 0 infinity bfAction
+        runBF graph combine isLessThan 0 infinity bfAction
     where
         edges' = map (fmap unGeneratedWeight) edges
 
@@ -154,19 +158,20 @@ findsNegativeCycle
     :: (Lib.Unboxable weight RealWorld, Eq weight, Show weight, Num weight)
     => (forall weight' s v meta a. RunBF weight' s v meta a)
     -> (generatedWeight -> weight)
+    -> (weight -> weight -> weight)
     -> (weight -> weight -> Bool)
     -> weight
     -> weight
     -> [TestEdge (Positive generatedWeight)]
     -> NegativeCycle generatedWeight
     -> Expectation
-findsNegativeCycle runBF unGeneratedWeight isLessThan zero infinity positiveEdges (NegativeCycle cycleEdges) = do
+findsNegativeCycle runBF unGeneratedWeight combine isLessThan zero infinity positiveEdges (NegativeCycle cycleEdges) = do
     shuffledPositiveEdges <- Shuffle.shuffleM positiveEdges'
     shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges')
     graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
-    negativeCycleM <- ST.stToIO $ runBF graph (+) isLessThan zero infinity $ do
+    negativeCycleM <- ST.stToIO $ runBF graph combine isLessThan zero infinity $ do
         Lib.bellmanFord (head shuffledVertices)
         Lib.negativeCycle
     case negativeCycleM of

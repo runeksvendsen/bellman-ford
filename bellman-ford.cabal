@@ -32,6 +32,7 @@ library
       Data.Graph.Util
       Data.Graph.IsWeight
       Data.Graph.SP.Double
+      Data.Graph.SP.Int64
       Data.Queue
       Data.Stack
       Data.IndexMinPQ
