@@ -5,7 +5,7 @@
 --    (e.g. 'Data.Array.ST.STUArray' and 'Data.Array.IO.IOUArray').
 module Data.Graph.BellmanFord.Unboxed
 ( -- * Monad
-  runBF
+  runBF, runBFTrace
 , BF
 , Unboxable
   -- * Algorithm
@@ -62,6 +62,24 @@ runBF
     -> ST s a
 runBF graph weightCombine isLessThan zero infinity = do
     BF.runBF
+        graph
+        (\(Unboxed weight) meta -> Unboxed $ weightCombine weight meta)
+        (\(Unboxed a) (Unboxed b) -> isLessThan a b)
+        (Unboxed zero)
+        (Unboxed infinity)
+
+-- |
+runBFTrace
+    :: (Unboxable weight s, Show meta, Show v, Show weight)
+    => DG.Digraph s v meta
+    -> (weight -> meta -> weight)
+    -> (weight -> weight -> Bool)
+    -> weight
+    -> weight
+    -> BF s v weight meta a
+    -> ST s a
+runBFTrace graph weightCombine isLessThan zero infinity = do
+    BF.runBFTrace
         graph
         (\(Unboxed weight) meta -> Unboxed $ weightCombine weight meta)
         (\(Unboxed a) (Unboxed b) -> isLessThan a b)

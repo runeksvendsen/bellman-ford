@@ -18,9 +18,14 @@ import qualified Data.Array.ST as ST
 import Control.Monad.ST
 
 newtype Boxed a = Boxed { getBoxed :: a }
-    deriving (Eq, Read, Show, Ord, Functor)
+    deriving (Eq, Ord, Functor)
 newtype Unboxed a = Unboxed { getUnboxed :: a }
-    deriving (Eq, Read, Show, Ord, Functor)
+    deriving (Eq, Ord, Functor)
+
+instance Show a => Show (Boxed a) where
+    show = show . getBoxed
+instance Show a => Show (Unboxed a) where
+    show = show . getUnboxed
 
 -- | A weight that can be used with the shortest path algorithms implemented by this library.
 --

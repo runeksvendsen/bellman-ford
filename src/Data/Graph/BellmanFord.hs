@@ -3,9 +3,10 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 module Data.Graph.BellmanFord
 ( -- * Monad
-  runBF
+  runBF, runBFTrace
 , BF
   -- * Algorithm
 , bellmanFord
@@ -14,6 +15,7 @@ module Data.Graph.BellmanFord
 , negativeCycle
   -- * Types
 , E.DirectedEdge(..)
+, showIndexedVertex, showEdge
   -- * Extras
 , getGraph
   -- * Re-exports
@@ -35,6 +37,7 @@ import qualified Data.Array.MArray                  as Arr
 import qualified Data.List.NonEmpty                 as NE
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
+import Debug.Trace (traceM)
 
 
 type BF s v weight meta = R.ReaderT (State s v weight meta) (ST s)
@@ -63,9 +66,80 @@ runBF
     -- ^ "Infinity"-element. @isLessThan a infinityElement@ must return 'True' for all edge weights @a@ in the graph.
     -> BF s v weight meta a
     -> ST s a
-runBF graph weightCombine isLessThan zero infinity bf = do
+runBF = do
+    runBF' (const $ pure ())
+
+data TraceAction v meta weight
+    = TraceAction_Relax !(DG.IdxEdge v meta) !(v, DG.VertexId) !weight
+    | TraceAction_Init !(v, DG.VertexId) !weight
+    | TraceAction_Done !(v, DG.VertexId)
+
+-- | Same as 'runBF' but print tracing information
+runBFTrace
+    :: forall s v meta weight a.
+       (IsWeight weight s, Show meta, Show v, Show weight)
+    => DG.Digraph s v meta
+    -> (weight -> meta -> weight)
+    -> (weight -> weight -> Bool)
+    -> weight
+    -> weight
+    -> BF s v weight meta a
+    -> ST s a
+runBFTrace =
+    runBF' $ traceM . trace'
+    where
+        trace' = \case
+            TraceAction_Relax edge toVertex newToWeight -> unwords
+                [ "Relaxing edge", showEdge edge <> "."
+                , "Updating 'distTo' for"
+                , showIndexedVertex toVertex
+                , "to"
+                , show newToWeight <> "."
+                ]
+            TraceAction_Init srcVertex weight -> unwords
+                [ "Starting Bellman-Ford for source vertex"
+                , showIndexedVertex srcVertex <> "."
+                , "Initializing 'distTo' for"
+                , showIndexedVertex srcVertex
+                , "to"
+                , show weight <> "."
+                ]
+            TraceAction_Done srcVertex -> unwords
+                [ "Finished Bellman-Ford for source vertex"
+                , showIndexedVertex srcVertex
+                ]
+
+showIndexedVertex
+    :: Show v
+    => (v, DG.VertexId)
+    -> String
+showIndexedVertex (v, vid) = show (DG.vidInt vid) <> " (" <> show v <> ")"
+
+showEdge
+    :: (Show meta, Show v)
+    => DG.IdxEdge v meta
+    -> String
+showEdge e = unwords
+    [ showIndexedVertex (DG.eFrom e, DG.eFromIdx e)
+    , "->"
+    , showIndexedVertex (DG.eTo e, DG.eToIdx e)
+    , "(meta:"
+    , show (DG.eMeta e) <> ")"
+    ]
+
+runBF'
+    :: IsWeight weight s
+    => (TraceAction v meta weight -> ST s ())
+    -> DG.Digraph s v meta
+    -> (weight -> meta -> weight)
+    -> (weight -> weight -> Bool)
+    -> weight
+    -> weight
+    -> BF s v weight meta a
+    -> ST s a
+runBF' traceFun graph weightCombine isLessThan zero infinity bf = do
     mutState <- initState infinity graph
-    let state = State graph weightCombine isLessThan zero infinity mutState
+    let state = State traceFun graph weightCombine isLessThan zero infinity mutState
     R.runReaderT bf state
 
 getGraph
@@ -73,7 +147,8 @@ getGraph
 getGraph = R.asks sGraph
 
 data State s v weight meta = State
-    { sGraph            :: DG.Digraph s v meta
+    { sTrace            :: TraceAction v meta weight -> ST s ()
+    , sGraph            :: DG.Digraph s v meta
     , sWeightCombine    :: (weight -> meta -> weight)
     , sIsLessThan       :: (weight -> weight -> Bool)
     , sZero             :: weight
@@ -143,17 +218,20 @@ bellmanFord
     => v    -- ^ Source vertex
     -> BF s v weight meta ()
 bellmanFord src = do
+    trace' <- R.asks sTrace
     graph <- R.asks sGraph
     state <- R.asks sMState
     srcVertexM <- R.lift (DG.lookupVertex graph src)
-    forM_ srcVertexM (initAndGo state)
+    forM_ srcVertexM (initAndGo trace' state)
   where
-    initAndGo state srcVertex = do
-        resetState state
+    initAndGo trace' state srcVertex = do
         zero <- R.asks sZero
+        _ <- R.lift $ trace' $ TraceAction_Init (src, srcVertex) zero
+        resetState state
         R.lift $ Weight.writeArray (distTo state) (DG.vidInt srcVertex) zero
         R.lift $ enqueueVertex state srcVertex
         go state
+        _ <- R.lift $ trace' $ TraceAction_Done (src, srcVertex)
         (`assert` ()) <$> check (DG.vidInt srcVertex)
     go state = do
         vertexM <- R.lift $ dequeueVertex state
@@ -210,6 +288,7 @@ relax
     => DG.VertexId
     -> BF s v weight meta ()
 relax vertex = do
+    traceRelax <- R.asks sTrace
     graph      <- R.asks sGraph
     calcWeight <- R.asks sWeightCombine
     isLessThan <- R.asks sIsLessThan
@@ -217,9 +296,9 @@ relax vertex = do
     edgeList   <- R.lift $ DG.outgoingEdges graph vertex
     distToFrom <- R.lift $ Weight.readArray (distTo state) (DG.vidInt vertex)
     vertexCount <- R.lift $ DG.vertexCount graph
-    mapM_ (handleEdge state calcWeight isLessThan vertexCount distToFrom) edgeList
+    mapM_ (handleEdge traceRelax state calcWeight isLessThan vertexCount distToFrom) edgeList
   where
-    handleEdge state calcWeight isLessThan vertexCount distToFrom edge =
+    handleEdge traceRelax state calcWeight isLessThan vertexCount distToFrom edge =
         unlessM hasNegativeCycle $ do
             let to = DG.eToIdx edge
                 toInt = DG.vidInt to
@@ -228,6 +307,7 @@ relax vertex = do
             -- Actual relaxation
             let newToWeight = calcWeight distToFrom (DG.eMeta edge)
             when (newToWeight `isLessThan` distToTo) $ R.lift $ do
+                _ <- traceRelax $ TraceAction_Relax edge (DG.eTo edge, to) newToWeight
                 Weight.writeArray (distTo state) toInt newToWeight
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $
@@ -358,20 +438,29 @@ check source = do
                 when (edgeToV == Nothing && distToV /= infinity) $
                     error $ "distTo[] and edgeTo[] inconsistent: " ++ show (edgeToV, distToV)
         -- check that all edges e = v->w satisfy distTo[w] <= distTo[v] + e.weight()
-        forM_ vertices $ \v -> do
-            adj <- DG.outgoingEdges graph v
+        forM_ vertices $ \from -> do
+            adj <- DG.outgoingEdges graph from
             (flip mapM_) adj $ \e -> do
-                let w = DG.eToIdx e
-                distToV <- Weight.readArray (distTo state) (DG.vidInt v)
-                distToW <- Weight.readArray (distTo state) (DG.vidInt w)
-                when (calcWeight distToV (DG.eMeta e) `isLessThan` distToW) $
+                let to = DG.eToIdx e
+                    toInt = DG.vidInt to
+                    fromInt = DG.vidInt from
+                distToFrom <- Weight.readArray (distTo state) fromInt
+                distToTo <- Weight.readArray (distTo state) toInt
+                let newDistToTo = calcWeight distToFrom (DG.eMeta e)
+                -- distTo[from] + e.weight() < distTo[to]
+                when (newDistToTo `isLessThan` distToTo) $ do
+                    let renderDist dist
+                            | dist == zero = "zero"
+                            | dist == infinity = "infinity"
+                            | otherwise = show dist
                     error $ unwords
                         [ "edge"
-                        , show e
+                        , showEdge e
                         , "not relaxed."
-                        , "distToV:", show distToV <> ","
-                        , "eMeta:", show (DG.eMeta e) <> ","
-                        , "distToW:", show distToW
+                        , "distToFrom(" <> show fromInt <> "):", renderDist distToFrom <> ","
+                        , "distToTo(" <> show toInt <> "):", renderDist distToTo <> ","
+                        , "newDistToTo:", renderDist newDistToTo <> ","
+                        , "eMeta:", show (DG.eMeta e)
                         ]
         -- check that all edges e = v->w on SPT satisfy distTo[w] == distTo[v] + e.weight()
         forM_ (map DG.vidInt vertices) $ \w -> do

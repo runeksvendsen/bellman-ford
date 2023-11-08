@@ -8,7 +8,7 @@
 module Types.Edge
 ( TestEdge(..)
 , NonNegativeWeight(..)
-, BoundedIntegral(..)
+, BoundedIntegral, getBoundedIntegral
 )
 where
 
@@ -57,45 +57,17 @@ instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (NonNegat
                      <*> fmap QC.getNonNegative QC.arbitrary
       in NonNegativeWeight <$> nonNegativeEdge
 
-newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral :: int }
-   deriving (Eq, Ord, Functor)
+newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral' :: bound }
+   deriving (Eq, Ord, Functor, Num, Bounded)
 
-instance (Bounded bound, Show int, Integral bound, Integral int) => Bounded (BoundedIntegral bound int) where
-   maxBound = fromIntegral (maxBound :: bound)
-   minBound = fromIntegral (minBound :: bound)
-
-instance (Bounded bound, Num bound, Show int, Integral int, Integral bound) => Num (BoundedIntegral bound int) where
-   BoundedIntegral a + BoundedIntegral b =
-      BoundedIntegral $ checkBounds (Proxy :: Proxy bound) $ a + b
-   BoundedIntegral a * BoundedIntegral b =
-      BoundedIntegral $ checkBounds (Proxy :: Proxy bound) $ a * b
-   abs =
-      BoundedIntegral . abs . getBoundedIntegral
-   signum =
-      BoundedIntegral . signum . getBoundedIntegral
-   fromInteger =
-      BoundedIntegral . checkBounds (Proxy :: Proxy bound) . fromInteger
-   negate =
-      BoundedIntegral . checkBounds (Proxy :: Proxy bound) . negate . getBoundedIntegral
-
-checkBounds
-   :: forall int bound.
-      ( Show int
-      , Bounded bound
-      , Integral bound
-      , Num int
-      , Ord int
-      )
-   => Proxy bound
+getBoundedIntegral
+   :: (Integral bound, Num int)
+   => BoundedIntegral bound int
    -> int
-   -> int
-checkBounds _ i
-   | i > (fromIntegral (maxBound :: bound)) = error $ "BoundedIntegral: overflow: " <> show i
-   | i < (fromIntegral (minBound :: bound)) = error $ "BoundedIntegral: underflow: " <> show i
-   | otherwise = i
+getBoundedIntegral = fromIntegral . getBoundedIntegral'
 
-instance Show int => Show (BoundedIntegral bound int) where
-   show = show . getBoundedIntegral
+instance Show bound => Show (BoundedIntegral bound int) where
+   show = show . getBoundedIntegral'
 
 instance (Monad m, Num int, SS.Serial m bound, Integral bound)
    => SS.Serial m (BoundedIntegral bound int) where

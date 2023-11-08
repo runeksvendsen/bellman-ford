@@ -71,6 +71,7 @@ test-suite bellman-ford-test
       Types.Edge
       Types.ListWithItem
       Types.Graph
+      Types.CLI.PrintTrace
       Util
       Util.GenData
       Util.QuickSmall
