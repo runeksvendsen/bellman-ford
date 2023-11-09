@@ -4,7 +4,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TypeApplications #-}
 module Types.Edge
 ( TestEdge(..)
 , NonNegativeWeight(..)
@@ -15,7 +14,7 @@ where
 import           Data.Graph.Digraph                   as Lib
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
-import Data.Proxy (Proxy (Proxy))
+import qualified Data.List.NonEmpty as NE
 
 data TestEdge weight = TestEdge
     { getFrom     :: String
@@ -80,3 +79,8 @@ instance (Num int, QC.Arbitrary bound, Integral bound)
       arbitrary = do
          weight' :: bound <- QC.arbitrary
          pure $ BoundedIntegral (fromIntegral weight')
+
+-- Orphan
+instance (QC.Arbitrary a) => QC.Arbitrary (NE.NonEmpty a) where
+   arbitrary = fmap NE.fromList $
+      QC.arbitrary `QC.suchThat` (not . null)

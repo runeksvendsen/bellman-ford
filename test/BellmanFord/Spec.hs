@@ -105,9 +105,10 @@ spec runBF = Tasty.testGroup "BellmanFord"
             ]
 
         testFindsNegativeCycle unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "finds negative cycle"
-            [ QS.testProperty "with no other edges in the graph" True -- TODO: re-enable once https://github.com/runeksvendsen/bellman-ford/issues/6 is fixed
-            , QS.testProperty "with other (positive-weight) edges in the graph" $
-                findsNegativeCycle runBF unGeneratedWeight combine isLessThan 0 infinity
+            [ QS.testProperty "with no other edges in the graph" $
+                findsNegativeCycle runBF unGeneratedWeight combine isLessThan 0 infinity []
+            , QS.testProperty "with other (positive-weight) edges in the graph" $ \positiveEdges ->
+                findsNegativeCycle runBF unGeneratedWeight combine isLessThan 0 infinity (NE.toList positiveEdges)
             ]
 
 removePathsTerminates
@@ -176,12 +177,14 @@ findsNegativeCycle runBF unGeneratedWeight combine isLessThan zero infinity posi
         Lib.negativeCycle
     case negativeCycleM of
         Nothing ->
-            let errFormatStr = unlines
-                    [ "no cycle found."
-                    , "expected: %s"
-                    , "positive edges: %s"
+            let errorStr = unlines
+                    [ "no negative cycle found."
+                    , "expected cycle: " <> show cycleEdges'
+                    , "cycle weight: " <> show (sum $ NE.map getWeight cycleEdges')
+                    , "cycle length: " <> show (length cycleEdges')
+                    , "positive edges: " <> show positiveEdges'
                     ]
-            in expectationFailure $ printf errFormatStr (show cycleEdges') (show positiveEdges')
+            in expectationFailure errorStr
         Just returnedCycle ->
             map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges')
     where
