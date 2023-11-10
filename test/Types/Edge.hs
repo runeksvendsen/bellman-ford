@@ -5,7 +5,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types.Edge
-( TestEdge(..)
+( TestEdge(..), idxEdgeToTestEdge
 , NonNegativeWeight(..)
 , BoundedIntegral, getBoundedIntegral
 )
@@ -29,6 +29,12 @@ instance Lib.DirectedEdge (TestEdge weight) String weight where
    fromNode = getFrom
    toNode = getTo
    metaData = getWeight
+
+idxEdgeToTestEdge
+   :: Lib.IdxEdge String weight
+   -> TestEdge weight
+idxEdgeToTestEdge idx =
+   TestEdge (Lib.eFrom idx) (Lib.eTo idx) (Lib.eMeta idx)
 
 instance (Monad m, SS.Serial m weight) => SS.Serial m (TestEdge weight) where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
@@ -56,17 +62,11 @@ instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (NonNegat
                      <*> fmap QC.getNonNegative QC.arbitrary
       in NonNegativeWeight <$> nonNegativeEdge
 
-newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral' :: bound }
+newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral :: int }
    deriving (Eq, Ord, Functor, Num, Bounded)
 
-getBoundedIntegral
-   :: (Integral bound, Num int)
-   => BoundedIntegral bound int
-   -> int
-getBoundedIntegral = fromIntegral . getBoundedIntegral'
-
-instance Show bound => Show (BoundedIntegral bound int) where
-   show = show . getBoundedIntegral'
+instance Show int => Show (BoundedIntegral bound int) where
+   show = show . getBoundedIntegral
 
 instance (Monad m, Num int, SS.Serial m bound, Integral bound)
    => SS.Serial m (BoundedIntegral bound int) where

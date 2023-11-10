@@ -65,6 +65,7 @@ import Data.List (sortOn)
 ------------------  Edge with indexed vertices  ------------------
 ------------------------------------------------------------------
 
+-- | An edge with indexed vertices
 data IdxEdge v meta = IdxEdge
     { eMeta     :: !meta
     , _eFrom    :: !v

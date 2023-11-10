@@ -19,7 +19,7 @@ import qualified Data.Graph.BellmanFord.Unboxed     as Lib
 
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations.Pretty            ( Expectation
+import           Test.Hspec.Expectations.Pretty     ( Expectation
                                                     , shouldSatisfy
                                                     , expectationFailure
                                                     )
@@ -32,6 +32,8 @@ import qualified Test.SmallCheck.Series as SS
 import Data.Int (Int64, Int32)
 import IndexMinPQ.Util (Positive, unPositive)
 import qualified Data.Graph.SP.Int64
+import qualified Data.Graph.Cycle as Cycle
+import qualified Data.Set as Set
 
 type RunBF weight s v meta a =
        (Lib.Unboxable weight s, Show meta, Show v, Show weight)
@@ -156,7 +158,7 @@ bellmanFord runBF combine isLessThan zero infinity edges = do
 --    "Lib.negativeCycle" finds only one negative cycle, equal
 --    to the list of input negative-cycle edges.
 findsNegativeCycle
-    :: (Lib.Unboxable weight RealWorld, Eq weight, Show weight, Num weight)
+    :: (Lib.Unboxable weight RealWorld, Eq weight, Show weight, Num weight, Ord weight)
     => (forall weight' s v meta a. RunBF weight' s v meta a)
     -> (generatedWeight -> weight)
     -> (weight -> weight -> weight)
@@ -168,7 +170,7 @@ findsNegativeCycle
     -> Expectation
 findsNegativeCycle runBF unGeneratedWeight combine isLessThan zero infinity positiveEdges (NegativeCycle cycleEdges) = do
     shuffledPositiveEdges <- Shuffle.shuffleM positiveEdges'
-    shuffledCycleEdges <- Shuffle.shuffleM (NE.toList cycleEdges')
+    shuffledCycleEdges <- Shuffle.shuffleM cycleEdges'
     graph <- ST.stToIO $ Lib.fromEdges (shuffledPositiveEdges ++ shuffledCycleEdges)
     let cycleVertices = concat $ NE.map (\e -> [getFrom e, getTo e]) cycleEdges
     shuffledVertices <- Shuffle.shuffleM cycleVertices
@@ -180,16 +182,44 @@ findsNegativeCycle runBF unGeneratedWeight combine isLessThan zero infinity posi
             let errorStr = unlines
                     [ "no negative cycle found."
                     , "expected cycle: " <> show cycleEdges'
-                    , "cycle weight: " <> show (sum $ NE.map getWeight cycleEdges')
+                    , "cycle weight: " <> show (sum $ map getWeight cycleEdges')
                     , "cycle length: " <> show (length cycleEdges')
                     , "positive edges: " <> show positiveEdges'
                     ]
             in expectationFailure errorStr
         Just returnedCycle ->
-            map Util.fromIdxEdge (NE.toList returnedCycle) `shouldSatisfy` (`Util.sameUniqueSequenceAs` NE.toList cycleEdges')
+            -- If there are other, positive-weight edges in the graph, then we can't be sure that the generated negative cycle is the cycle that is found, since another negative cycle (which includes one or more of the positive-weight edges) may exist.
+            -- Therefore, in this case, we just assert that:
+            --   (1) The found negative cycle is a cycle
+            --   (2) The weight of the found negative cycle is negative
+            --   (3) The edges that comprise the cycle are present in either 'positiveEdges' or 'cycleEdges'
+            let isCorrect = (`Util.sameUniqueSequenceAs` cycleEdges')
+                returnedCycle' = NE.toList returnedCycle
+                result = map Util.fromIdxEdge returnedCycle'
+                mkErrorStr err = unlines
+                    [ err <> "."
+                    , "expected cycle: " <> show cycleEdges'
+                    , "actual cycle: " <> show result
+                    ]
+                expectFail = expectationFailure . mkErrorStr
+            in case positiveEdges of
+                [] -> unless (isCorrect result) $ expectFail "wrong negative cycle found"
+                _ -> do
+                    -- (1)
+                    maybe (pure ()) expectFail (Cycle.verifyCycle returnedCycle')
+                    -- (2)
+                    let cycleWeight = sum $ NE.map Lib.metaData returnedCycle
+                    cycleWeight `shouldSatisfy` (< 0)
+                    -- (3)
+                    let returnedCycleEdgeSet = Set.fromList (map idxEdgeToTestEdge returnedCycle')
+                        insertedEdgesSet = Set.fromList (positiveEdges' ++ cycleEdges')
+                        unknownEdges = returnedCycleEdgeSet `Set.difference` insertedEdgesSet
+                    unless (null unknownEdges) $
+                        expectFail $ "edges in cycle never inserted into the graph: " <> show unknownEdges
+
     where
         positiveEdges' = map (fmap (unGeneratedWeight . unPositive)) positiveEdges
-        cycleEdges' = NE.map (fmap unGeneratedWeight) cycleEdges
+        cycleEdges' = NE.toList $ NE.map (fmap unGeneratedWeight) cycleEdges
 
 fromShuffledEdges
     :: (Ord v, Lib.DirectedEdge edge v weight)
