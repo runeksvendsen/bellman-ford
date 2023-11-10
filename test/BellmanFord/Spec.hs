@@ -48,12 +48,13 @@ type RunBF weight s v meta a =
 spec :: (forall weight s v meta a. RunBF weight s v meta a) -> Tasty.TestTree
 spec runBF = Tasty.testGroup "BellmanFord"
     [ Tasty.testGroup "Double"
-        [ testPassesCheck id (+) Double.isLessThan (1/0)
+        [ testPassesCheck "additive (all weights)" id (+) Double.isLessThan (1/0)
+        , testPassesCheck "multiplicative (positive weights)" unPositive (*) Double.isLessThan (1/0)
         , testFindsNegativeCycle id (+) Double.isLessThan (1/0)
         , testRemovePaths id (+) Double.isLessThan (1/0)
         ]
     , Tasty.testGroup "Int64"
-        [ testPassesCheck boundedInt64 int64Addition int64IsLessThan int64Infinity
+        [ testPassesCheck "additive (all weights)" boundedInt64 int64Addition int64IsLessThan int64Infinity
         , testFindsNegativeCycle boundedInt64 int64Addition int64IsLessThan int64Infinity
         , testRemovePaths boundedInt64 int64Addition int64IsLessThan int64Infinity
         ]
@@ -81,25 +82,21 @@ spec runBF = Tasty.testGroup "BellmanFord"
             , SS.Serial IO generatedWeight
             , Lib.Unboxable weight RealWorld
             )
-            => (generatedWeight -> weight) -- Allows using e.g. 'Test.QuickCheck.Positive' as weight by passing in 'getPositive' here
+            => String
+            -> (generatedWeight -> weight) -- Allows using e.g. 'Test.QuickCheck.Positive' as weight by passing in 'getPositive' here
             -> (weight -> weight -> weight)
             -> (weight -> weight -> Bool)
             -> weight
             -> Tasty.TestTree
-        testPassesCheck unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "passes 'check'"
-            [ QS.testProperty "additive (all weights)"
-                (\edges ->
-                    bellmanFord
-                        runBF
-                        combine
-                        isLessThan
-                        0
-                        infinity
-                        (map (fmap unGeneratedWeight) edges :: [TestEdge weight])
-                )
-            , QS.testProperty "multiplicative (positive weights)"
-                True -- TODO: re-enable once https://github.com/runeksvendsen/bellman-ford/issues/5 is fixed
-              -- TODO: NegLog?
+        testPassesCheck name unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "passes 'check'"
+            [ QS.testProperty name $ \edges ->
+                bellmanFord
+                    runBF
+                    combine
+                    isLessThan
+                    0
+                    infinity
+                    (map (fmap unGeneratedWeight) edges :: [TestEdge weight])
             ]
 
         testRemovePaths unGeneratedWeight combine isLessThan infinity = Tasty.testGroup "removePaths"
