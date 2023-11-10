@@ -78,21 +78,22 @@ genVertexList = do
 newtype NegativeCycle weight = NegativeCycle { getNegativeCycle :: NE.NonEmpty (TestEdge weight) }
    deriving (Eq, Show, Ord)
 
-instance (Monad m, SS.Serial m weight, Show weight, Ord weight, Num weight) => SS.Serial m (NegativeCycle weight) where
+instance (Monad m, SS.Serial m weight, Show weight, Ord weight, Num weight, FuzzyOrd weight) => SS.Serial m (NegativeCycle weight) where
    series = negativeCycle
 
-instance (QC.Arbitrary weight, Show weight, Ord weight, Num weight) => QC.Arbitrary (NegativeCycle weight) where
+instance (QC.Arbitrary weight, Show weight, Ord weight, Num weight, FuzzyOrd weight) => QC.Arbitrary (NegativeCycle weight) where
    arbitrary = negativeCycle
 
 negativeCycle
    :: ( GenData m (EdgeCycle weight)
       , Ord weight
+      , FuzzyOrd weight
       , Num weight
       , Show weight
       )
    => m (NegativeCycle weight)
 negativeCycle = fmap assertNegativeWeightSum $
-    NegativeCycle . getEdgeCycle <$> genData `suchThat` ((< 0) . negativeWeightSum . getEdgeCycle)
+    NegativeCycle . getEdgeCycle <$> genData `suchThat` ((`fuzzyLT` 0) . negativeWeightSum . getEdgeCycle)
   where
     negativeWeightSum edgeCycle' =
         sum (NE.map getWeight edgeCycle')

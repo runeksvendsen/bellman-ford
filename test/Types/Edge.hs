@@ -8,6 +8,7 @@ module Types.Edge
 ( TestEdge(..), idxEdgeToTestEdge
 , NonNegativeWeight(..)
 , BoundedIntegral, getBoundedIntegral
+, FuzzyOrd(..)
 )
 where
 
@@ -15,6 +16,8 @@ import           Data.Graph.Digraph                   as Lib
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Graph.SP.Double
+import Data.Int
 
 data TestEdge weight = TestEdge
     { getFrom     :: String
@@ -65,6 +68,9 @@ instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (NonNegat
 newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral :: int }
    deriving (Eq, Ord, Functor, Num, Bounded)
 
+instance Integral int => FuzzyOrd (BoundedIntegral bound int) where
+   fuzzyLT = (<)
+
 instance Show int => Show (BoundedIntegral bound int) where
    show = show . getBoundedIntegral
 
@@ -84,3 +90,15 @@ instance (Num int, QC.Arbitrary bound, Integral bound)
 instance (QC.Arbitrary a) => QC.Arbitrary (NE.NonEmpty a) where
    arbitrary = fmap NE.fromList $
       QC.arbitrary `QC.suchThat` (not . null)
+
+-- | Due to floating point rounding errors, using @< 0@ as the constraint on a negative cycle is not enough.
+--   For 'Double', we need to instead use 'Data.Graph.SP.Double.isLessThan'.
+--   This class exists only to support using a different "less than" function for 'Double'.
+class Eq a => FuzzyOrd a where
+   fuzzyLT :: a -> a -> Bool
+
+instance FuzzyOrd Double where
+   fuzzyLT = Data.Graph.SP.Double.isLessThan
+
+instance FuzzyOrd Int64 where
+   fuzzyLT = (<)
