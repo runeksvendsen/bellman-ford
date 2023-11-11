@@ -4,9 +4,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
 module Data.Graph.BellmanFord
 ( -- * Monad
-  runBF, runBFTrace
+  runBF, runBFTrace, runBFTraceGeneric
 , BF
   -- * Algorithm
 , bellmanFord
@@ -15,6 +17,7 @@ module Data.Graph.BellmanFord
 , negativeCycle
   -- * Types
 , E.DirectedEdge(..)
+, TraceEvent(..)
 , showIndexedVertex, showEdge
   -- * Extras
 , getGraph
@@ -67,12 +70,28 @@ runBF
     -> BF s v weight meta a
     -> ST s a
 runBF = do
-    runBF' (const $ pure ())
+    runBFTraceGeneric (const $ pure ())
 
-data TraceAction v meta weight
-    = TraceAction_Relax !(DG.IdxEdge v meta) !(v, DG.VertexId) !weight
-    | TraceAction_Init !(v, DG.VertexId) !weight
-    | TraceAction_Done !(v, DG.VertexId)
+-- | Contains information about an event that has occurred.
+--
+-- Can be used to "hook" into the algorithm to collect or print information.
+data TraceEvent v meta weight
+    = TraceEvent_Relax
+      -- ^ An edge is "relaxed", cf. https://algs4.cs.princeton.edu/44sp.
+        !(DG.IdxEdge v meta)
+        -- ^ The edge that's relaxed
+        !weight
+        -- ^ The new distance to the edge's /destination/-vertex
+    | TraceEvent_Init
+      -- ^ 'bellmanFord' is started
+        !(v, DG.VertexId)
+        -- ^ /source/ vertex
+        !weight
+        -- ^ The /source/ vertex' distance is initialized to this
+    | TraceEvent_Done
+      -- ^ 'bellmanFord' has terminated
+        !(v, DG.VertexId)
+        -- ^ /source/ vertex
 
 -- | Same as 'runBF' but print tracing information
 runBFTrace
@@ -86,17 +105,17 @@ runBFTrace
     -> BF s v weight meta a
     -> ST s a
 runBFTrace =
-    runBF' $ traceM . trace'
+    runBFTraceGeneric $ traceM . trace'
     where
         trace' = \case
-            TraceAction_Relax edge toVertex newToWeight -> unwords
+            TraceEvent_Relax edge newToWeight -> unwords
                 [ "Relaxing edge", showEdge edge <> "."
                 , "Updating 'distTo' for"
-                , showIndexedVertex toVertex
+                , showIndexedVertex (DG.eTo edge, DG.eToIdx edge)
                 , "to"
                 , show newToWeight <> "."
                 ]
-            TraceAction_Init srcVertex weight -> unwords
+            TraceEvent_Init srcVertex weight -> unwords
                 [ "Starting Bellman-Ford for source vertex"
                 , showIndexedVertex srcVertex <> "."
                 , "Initializing 'distTo' for"
@@ -104,7 +123,7 @@ runBFTrace =
                 , "to"
                 , show weight <> "."
                 ]
-            TraceAction_Done srcVertex -> unwords
+            TraceEvent_Done srcVertex -> unwords
                 [ "Finished Bellman-Ford for source vertex"
                 , showIndexedVertex srcVertex
                 ]
@@ -127,9 +146,10 @@ showEdge e = unwords
     , show (DG.eMeta e) <> ")"
     ]
 
-runBF'
+-- | Same as 'runBF' but provide a function that will receive a 'TraceEvent' when certain events occur during the execution of the algorithm.
+runBFTraceGeneric
     :: IsWeight weight s
-    => (TraceAction v meta weight -> ST s ())
+    => (TraceEvent v meta weight -> ST s ())
     -> DG.Digraph s v meta
     -> (weight -> meta -> weight)
     -> (weight -> weight -> Bool)
@@ -137,7 +157,7 @@ runBF'
     -> weight
     -> BF s v weight meta a
     -> ST s a
-runBF' traceFun graph weightCombine isLessThan zero infinity bf = do
+runBFTraceGeneric traceFun graph weightCombine isLessThan zero infinity bf = do
     mutState <- initState infinity graph
     let state = State traceFun graph weightCombine isLessThan zero infinity mutState
     R.runReaderT bf state
@@ -147,7 +167,7 @@ getGraph
 getGraph = R.asks sGraph
 
 data State s v weight meta = State
-    { sTrace            :: TraceAction v meta weight -> ST s ()
+    { sTrace            :: TraceEvent v meta weight -> ST s ()
     , sGraph            :: DG.Digraph s v meta
     , sWeightCombine    :: (weight -> meta -> weight)
     , sIsLessThan       :: (weight -> weight -> Bool)
@@ -226,12 +246,12 @@ bellmanFord src = do
   where
     initAndGo trace' state srcVertex = do
         zero <- R.asks sZero
-        _ <- R.lift $ trace' $ TraceAction_Init (src, srcVertex) zero
+        _ <- R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
         resetState state
         R.lift $ Weight.writeArray (distTo state) (DG.vidInt srcVertex) zero
         R.lift $ enqueueVertex state srcVertex
         go state
-        _ <- R.lift $ trace' $ TraceAction_Done (src, srcVertex)
+        _ <- R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
         (`assert` ()) <$> check (DG.vidInt srcVertex)
     go state = do
         vertexM <- R.lift $ dequeueVertex state
@@ -307,7 +327,7 @@ relax vertex = do
             -- Actual relaxation
             let newToWeight = calcWeight distToFrom (DG.eMeta edge)
             when (newToWeight `isLessThan` distToTo) $ R.lift $ do
-                _ <- traceRelax $ TraceAction_Relax edge (DG.eTo edge, to) newToWeight
+                _ <- traceRelax $ TraceEvent_Relax edge newToWeight
                 Weight.writeArray (distTo state) toInt newToWeight
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $
