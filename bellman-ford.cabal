@@ -31,6 +31,8 @@ library
       Data.Graph.Prelude
       Data.Graph.Util
       Data.Graph.IsWeight
+      Data.Graph.SP.Types
+      Data.Graph.SP.Util
       Data.Graph.SP.Double
       Data.Graph.SP.Int64
       Data.Queue

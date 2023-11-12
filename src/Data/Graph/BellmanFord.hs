@@ -18,7 +18,6 @@ module Data.Graph.BellmanFord
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
-, showIndexedVertex, showEdge
   -- * Extras
 , getGraph
   -- * Re-exports
@@ -28,6 +27,8 @@ where
 
 import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
+import           Data.Graph.SP.Util
+import           Data.Graph.SP.Types
 import           Data.Graph.IsWeight
 import qualified Data.Graph.IsWeight                as Weight
 import qualified Data.Graph.Digraph                 as DG
@@ -72,27 +73,6 @@ runBF
 runBF = do
     runBFTraceGeneric (const $ pure ())
 
--- | Contains information about an event that has occurred.
---
--- Can be used to "hook" into the algorithm to collect or print information.
-data TraceEvent v meta weight
-    = TraceEvent_Relax
-      -- ^ An edge is "relaxed", cf. https://algs4.cs.princeton.edu/44sp.
-        !(DG.IdxEdge v meta)
-        -- ^ The edge that's relaxed
-        !weight
-        -- ^ The new distance to the edge's /destination/-vertex
-    | TraceEvent_Init
-      -- ^ 'bellmanFord' is started
-        !(v, DG.VertexId)
-        -- ^ /source/ vertex
-        !weight
-        -- ^ The /source/ vertex' distance is initialized to this
-    | TraceEvent_Done
-      -- ^ 'bellmanFord' has terminated
-        !(v, DG.VertexId)
-        -- ^ /source/ vertex
-
 -- | Same as 'runBF' but print tracing information
 runBFTrace
     :: forall s v meta weight a.
@@ -105,46 +85,7 @@ runBFTrace
     -> BF s v weight meta a
     -> ST s a
 runBFTrace =
-    runBFTraceGeneric $ traceM . trace'
-    where
-        trace' = \case
-            TraceEvent_Relax edge newToWeight -> unwords
-                [ "Relaxing edge", showEdge edge <> "."
-                , "Updating 'distTo' for"
-                , showIndexedVertex (DG.eTo edge, DG.eToIdx edge)
-                , "to"
-                , show newToWeight <> "."
-                ]
-            TraceEvent_Init srcVertex weight -> unwords
-                [ "Starting Bellman-Ford for source vertex"
-                , showIndexedVertex srcVertex <> "."
-                , "Initializing 'distTo' for"
-                , showIndexedVertex srcVertex
-                , "to"
-                , show weight <> "."
-                ]
-            TraceEvent_Done srcVertex -> unwords
-                [ "Finished Bellman-Ford for source vertex"
-                , showIndexedVertex srcVertex
-                ]
-
-showIndexedVertex
-    :: Show v
-    => (v, DG.VertexId)
-    -> String
-showIndexedVertex (v, vid) = show (DG.vidInt vid) <> " (" <> show v <> ")"
-
-showEdge
-    :: (Show meta, Show v)
-    => DG.IdxEdge v meta
-    -> String
-showEdge e = unwords
-    [ showIndexedVertex (DG.eFrom e, DG.eFromIdx e)
-    , "->"
-    , showIndexedVertex (DG.eTo e, DG.eToIdx e)
-    , "(meta:"
-    , show (DG.eMeta e) <> ")"
-    ]
+    runBFTraceGeneric $ traceM . renderTraceEvent
 
 -- | Same as 'runBF' but provide a function that will receive a 'TraceEvent' when certain events occur during the execution of the algorithm.
 runBFTraceGeneric
