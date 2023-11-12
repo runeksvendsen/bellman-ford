@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
-  runDijkstra
+  runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
 , Dijkstra
   -- * Algorithm
 , dijkstra
@@ -18,6 +18,7 @@ where
 
 import           Prelude                            hiding (cycle)
 import           Data.Graph.Prelude
+import           Data.Graph.SP.Types
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Data.Array.ST                      (STArray, STUArray)
@@ -26,6 +27,7 @@ import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 import Unsafe.Coerce (unsafeCoerce)
+import Debug.Trace (traceM)
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -48,18 +50,41 @@ runDijkstra
     -- E.g.: equal to 0 if @weightComb@ equals @('+')@ and 1 if @weightComb@ equals @('*')@.
     -> Dijkstra s v meta a
     -> ST s a
-runDijkstra graph weightCombine zero bf = do
+runDijkstra =
+    runDijkstraTraceGeneric $ const (pure ())
+
+-- | Same as 'runDijkstra' but print tracing information
+runDijkstraTrace
+    :: (Show meta, Show v)
+    => DG.Digraph s v meta
+    -> (Double -> meta -> Double)
+    -> Double
+    -> Dijkstra s v meta a
+    -> ST s a
+runDijkstraTrace =
+    runDijkstraTraceGeneric $ traceM . renderTraceEvent
+
+-- | Same as 'runDijkstra' but provide a function that will receive a 'TraceEvent' when certain events occur during the execution of the algorithm.
+runDijkstraTraceGeneric
+    :: (TraceEvent v meta Double -> ST s ())
+    -> DG.Digraph s v meta
+    -> (Double -> meta -> Double)
+    -> Double
+    -> Dijkstra s v meta a
+    -> ST s a
+runDijkstraTraceGeneric traceFun graph weightCombine zero action = do
     -- TODO: assert all edge weights >= 0
     mutState <- initState graph
-    let state = State graph weightCombine zero mutState
-    R.runReaderT bf state
+    let state = State traceFun graph weightCombine zero mutState
+    R.runReaderT action state
 
 getGraph
     :: Dijkstra s v meta (DG.Digraph s v meta)
 getGraph = R.asks sGraph
 
 data State s v meta = State
-    { sGraph            :: DG.Digraph s v meta
+    { sTrace            :: TraceEvent v meta Double -> ST s ()
+    , sGraph            :: DG.Digraph s v meta
     , sWeightCombine    :: (Double -> meta -> Double)
     , sZero             :: Double
     , sMState           :: MState s v meta
@@ -139,9 +164,12 @@ dijkstraTerminate terminate src = do
     initAndGo state graph srcVertex = do
         resetState state
         zero <- R.asks sZero
+        trace' <- R.asks sTrace
+        R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
         R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
         R.lift $ enqueueVertex state srcVertex zero
         go state graph
+        R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
 
     go state graph = do
         let pq = queue state
@@ -165,6 +193,7 @@ relax edge = do
     handleEdge state calcWeight distToFrom
   where
     handleEdge state calcWeight distToFrom = do
+        trace' <- R.asks sTrace
         let to = DG.eToIdx edge
             toInt = DG.vidInt to
         -- Look up current distance to "to" vertex
@@ -172,6 +201,7 @@ relax edge = do
         -- Actual relaxation
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
         when (distToTo > newToWeight + epsilon) $ R.lift $ do
+            trace' $ TraceEvent_Relax edge newToWeight
             Arr.writeArray (distTo state) toInt newToWeight -- distTo[w] = distTo[v] + e.weight()
             Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
             queueContainsToNode <- Q.contains (queue state) toInt
