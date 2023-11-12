@@ -11,6 +11,7 @@ module Data.Graph.Dijkstra
 , pathTo
   -- * Types
 , E.DirectedEdge(..)
+, TraceEvent(..)
   -- * Extras
 , getGraph
 )
