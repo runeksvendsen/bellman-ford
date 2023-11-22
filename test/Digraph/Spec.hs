@@ -9,6 +9,7 @@ module Digraph.Spec
 where
 
 import           Types.Edge
+import qualified Digraph.DotGraph
 import qualified Util
 import qualified Util.QuickSmall                    as QS
 
@@ -35,7 +36,7 @@ spec = Tasty.testGroup "Digraph" $
     , Tasty.testGroup "edgeCount"
        [ QS.testProperty "== outgoing edge count for all vertices" (edgeCountEqualsOutgoingCountForallVertices @Double)
        ]
-    ]
+    ] ++ [Digraph.DotGraph.spec]
 
 addRemoveEdges
     :: [TestEdge weight]

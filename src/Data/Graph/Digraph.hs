@@ -3,11 +3,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Translation of Sedgewick & Wayne's @EdgeWeightedDigraph.java@ to Haskell (https://algs4.cs.princeton.edu/44sp/EdgeWeightedDigraph.java.html).
 --
@@ -24,6 +24,7 @@ module Data.Graph.Digraph
 , edgeCount
 , vertices
 , vertexLabels
+, veticesAndLabels
 , outgoingEdges
 , outgoingEdges'
 , lookupVertex
@@ -41,6 +42,8 @@ module Data.Graph.Digraph
 , eTo
 , eFromIdx
 , eToIdx
+  -- * Util
+, graphToDot, graphToDotMulti
   -- * Internal
 , emptyClone
   -- * Re-exports
@@ -60,6 +63,7 @@ import Data.Ix (Ix(..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import Data.List (sortOn)
+import qualified Data.Text.Lazy as LT
 
 ------------------------------------------------------------------
 ------------------  Edge with indexed vertices  ------------------
@@ -311,6 +315,13 @@ vertexLabels
 vertexLabels (Digraph _ _ indexMap) =
     keySet indexMap
 
+-- | All the vertices in the graph including vertex labels
+veticesAndLabels
+    :: Digraph s v meta
+    -> ST s [(v, VertexId)]
+veticesAndLabels (Digraph _ _ indexMap) =
+    keyValueSet indexMap
+
 -- | All edges going out of the given vertex
 outgoingEdges
     :: Digraph s v meta
@@ -330,6 +341,80 @@ outgoingEdges'
 outgoingEdges' dg v = do
     vidM <- lookupVertex dg v
     maybe (return Nothing) (fmap Just . outgoingEdges dg) vidM
+
+-- | TODO: better name
+graphToDot
+    :: (v -> LT.Text)
+    -- ^ Vertex label
+    -> (IdxEdge v meta -> Set.Set LT.Text)
+    -- ^ Edge labels.
+    --
+    -- This is a 'Set.Set' because a 'Digraph' supports only a single edge between two specific vertices.
+    -- So if you use e.g. a 'NE.NonEmpty' of edges as the graph metadata to get around this,
+    -- then you'll want this function to produce one label for each edge in this non-empty list.
+    -> LT.Text
+    -- ^ Graph name
+    -> Digraph s v meta
+    -> ST s LT.Text
+graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
+    res <- veticesAndLabels g
+    nodesAndEdges <- forM res $ \(v, vid) -> do
+        edges <- outgoingEdges g vid
+        pure ((v, vid), edges)
+    pure $ mkGraph nodesAndEdges
+  where
+    showVertexId = LT.pack . show . vidInt
+
+    mkNode (v, idx) = statement $ LT.unwords
+        [ showVertexId idx
+        , bracketize $ mkLabel (mkVertexLabel v)
+        ]
+
+    mkEdge idxEdge edgeLabel =
+        statement $ LT.unwords
+            [ showVertexId $ eFromIdx idxEdge
+            , "->"
+            , showVertexId $ eToIdx idxEdge
+            , bracketize $ mkLabel edgeLabel
+            ]
+
+    mkEdges idxEdge =
+        map (mkEdge idxEdge) (Set.toList $ mkEdgeLabel idxEdge)
+
+    mkNodeAndEdges (vertex, idxEdges) =
+          mkNode vertex
+        : concatMap mkEdges idxEdges
+
+    mkGraph nodesAndEdges = mkDigraph $ LT.unlines $
+          statement (mkLabel gLabel)
+        : concatMap mkNodeAndEdges nodesAndEdges
+
+    mkDigraph txt = "digraph {\n" <> txt <> "\n}"
+    mkLabel lbl = "label = " <> quote lbl
+    quote txt = "\"" <> txt <> "\""
+    bracketize txt = "[" <> txt <> "]"
+    statement txt = txt <> ";"
+
+-- | Same as 'graphToDot' but specialized to graphs that use a 'NE.NonEmpty' as graph metadata,
+--   as produced by e.g. 'fromEdgesMulti'.
+graphToDotMulti
+    :: forall v meta s.
+       (v -> LT.Text)
+    -> (IdxEdge v meta -> LT.Text)
+    -> LT.Text
+    -> Digraph s v (NE.NonEmpty meta)
+    -> ST s LT.Text
+graphToDotMulti mkVertexLabel mkEdgeLabel =
+    graphToDot mkVertexLabel mkEdgeLabel'
+  where
+    conv :: IdxEdge v (NE.NonEmpty meta) -> NE.NonEmpty (IdxEdge v meta)
+    conv edge =
+        let nonEmptyMetas = eMeta edge
+            mkEdge meta = edge{ eMeta = meta }
+        in mkEdge <$> nonEmptyMetas
+
+    mkEdgeLabel' :: IdxEdge v (NE.NonEmpty meta) -> Set.Set LT.Text
+    mkEdgeLabel' = Set.fromList . map mkEdgeLabel . NE.toList . conv
 
 -- | Set of map keys
 keySet
