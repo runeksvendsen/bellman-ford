@@ -364,6 +364,7 @@ graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
     pure $ mkGraph nodesAndEdges
   where
     showVertexId = LT.pack . show . vidInt
+    escape = LT.replace "\"" "\\\"\\"
 
     mkNode (v, idx) = statement $ LT.unwords
         [ showVertexId idx
@@ -390,7 +391,7 @@ graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
         : concatMap mkNodeAndEdges nodesAndEdges
 
     mkDigraph txt = "digraph {\n" <> txt <> "\n}"
-    mkLabel lbl = "label = " <> quote lbl
+    mkLabel lbl = "label = " <> quote (escape lbl)
     quote txt = "\"" <> txt <> "\""
     bracketize txt = "[" <> txt <> "]"
     statement txt = txt <> ";"
