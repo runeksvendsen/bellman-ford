@@ -144,8 +144,7 @@ delMin
   => IndexMinPQ s key
   -> ST s Int
 delMin pq = do
-  assertQueueNotEmpty pq
-  min' <- Arr.readArray (state_pq pq) 1 -- int min = pq[1]
+  min' <- minIndex pq -- int min = pq[1]
   prevN <- MV.atomicModifyMutVar' (state_n pq) (\n -> (n-1, n)) -- decrement "n", return original "n"
   exch pq 1 prevN -- exch(1, n--) -- NOTE: the unincremented "n" is passed to "exch" since the postfix decrement operator is used
   sink pq 1 -- sink(1)
