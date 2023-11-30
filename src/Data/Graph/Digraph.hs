@@ -30,6 +30,7 @@ module Data.Graph.Digraph
 , lookupVertex
 , freeze
 , thaw
+, flipGraphEdges
 , IDigraph
   -- * Edge/vertex
 , VertexId
@@ -183,6 +184,19 @@ fromEdgesMulti =
     groupedEdgesToNonEmptyEdges edges =
         let edge = NE.head edges
         in NonEmptyEdges (E.fromNode edge) (E.toNode edge) (fmap E.metaData edges)
+
+-- | Return a copy of the input graph where 'flipEdge' has been applied to all edges in the graph
+flipGraphEdges
+    :: ( Ord v
+       , E.DirectedEdge [IdxEdge v meta] v meta
+       )
+    => Digraph s v meta
+    -> ST s (Digraph s v meta)
+flipGraphEdges g = do
+    -- TODO: optimize to avoid re-indexing everything
+    vertexList <- vertices g
+    edges <- forM vertexList (outgoingEdges g)
+    fromEdges (map flipEdge $ concat edges)
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta =
