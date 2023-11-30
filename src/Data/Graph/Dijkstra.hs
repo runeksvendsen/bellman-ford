@@ -7,6 +7,7 @@ module Data.Graph.Dijkstra
   -- * Algorithm
 , dijkstra
 , dijkstraSourceSink
+, dijkstraSourceSinkSamePrio
   -- * Queries
 , pathTo
   -- * Types
@@ -29,6 +30,7 @@ import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
 import Unsafe.Coerce (unsafeCoerce)
 import Debug.Trace (traceM)
+import qualified Data.STRef as Ref
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -134,7 +136,7 @@ dijkstra
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => v    -- ^ Source vertex
     -> Dijkstra s v meta ()
-dijkstra = dijkstraTerminate (const $ pure False)
+dijkstra = dijkstraTerminate (const $ const $ pure False)
 
 -- | Source-sink shortest path
 --
@@ -148,13 +150,36 @@ dijkstraSourceSink (src, dst) = do
     graph <- R.asks sGraph
     mVid <- R.lift $ DG.lookupVertex graph dst
     forM_ mVid $ \vid ->
-        dijkstraTerminate (\vid' -> pure $ vid' == vid) src
+        dijkstraTerminate (\vid' _ -> pure $ vid' == vid) src
+
+-- | Terminate when a vertex is dequeued whose priority
+--   is greater than the priority of the destination vertex
+dijkstraSourceSinkSamePrio
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => (v, v)    -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta ()
+dijkstraSourceSinkSamePrio (src, dst) = do
+    graph <- R.asks sGraph
+    mVid <- R.lift $ DG.lookupVertex graph dst
+    prioRef <- R.lift $ Ref.newSTRef (1/0)
+    forM_ mVid $ \vid -> do
+        let terminate vid' prio = do
+                when (vid' == vid) $ do
+                    R.lift $ Ref.writeSTRef prioRef prio
+                    traceM $ "Dequeued target vertex: " <> show (DG.vidInt vid) <> " prio: " <> show prio
+                firstPrio <- R.lift $ Ref.readSTRef prioRef
+                if firstPrio == (1/0)
+                    then pure False
+                    else pure $ prio /= firstPrio
+        dijkstraTerminate terminate src
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (DG.VertexId -> Dijkstra s v meta Bool)
-    -> v    -- ^ Source vertex
+    => (DG.VertexId -> Double -> Dijkstra s v meta Bool)
+    -- ^ Terminate when this function returns 'True'
+    -> v
+    -- ^ Source vertex
     -> Dijkstra s v meta ()
 dijkstraTerminate terminate src = do
     graph <- R.asks sGraph
@@ -175,8 +200,10 @@ dijkstraTerminate terminate src = do
     go state graph = do
         let pq = queue state
         whenM (not <$> R.lift (Q.isEmpty pq)) $ do
+            prio <- R.lift $ Q.minKey (queue state)
             v <- dequeueVertex
-            unlessM (terminate v) $ do
+            traceM $ "Dequeued " <> show (DG.vidInt v) <> " prio: " <> show prio
+            unlessM (terminate v prio) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
                 forM_ edgeList relax
                 go state graph
