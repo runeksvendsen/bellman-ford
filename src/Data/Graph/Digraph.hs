@@ -42,6 +42,7 @@ module Data.Graph.Digraph
 , eTo
 , eFromIdx
 , eToIdx
+, flipEdge
   -- * Util
 , graphToDot, graphToDotMulti
   -- * Internal
@@ -84,6 +85,20 @@ instance (Eq v, Hashable v) => E.DirectedEdge (IdxEdge v meta) v meta where
    fromNode = _eFrom
    toNode = _eTo
    metaData = eMeta
+
+-- | Swap the from/to vertices of the edge.
+--
+--   E.g. the edge @"a"->"b"@ will become the edge @"b"->"a"@.
+flipEdge
+    :: IdxEdge v meta
+    -> IdxEdge v meta
+flipEdge edge =
+    edge
+    { _eFrom = _eTo edge
+    , _eTo = _eFrom edge
+    , _eFromIdx = _eToIdx edge
+    , _eToIdx = _eFromIdx edge
+    }
 
 newtype VertexId = VertexId { _vidInt :: Int }
     deriving (Eq, Show, Ord, Hashable, Ix, NFData)
