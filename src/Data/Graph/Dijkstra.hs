@@ -166,7 +166,6 @@ dijkstraSourceSinkSamePrio (src, dst) = do
         let terminate vid' prio = do
                 when (vid' == vid) $ do
                     R.lift $ Ref.writeSTRef prioRef prio
-                    traceM $ "Dequeued target vertex: " <> show (DG.vidInt vid) <> " prio: " <> show prio
                 firstPrio <- R.lift $ Ref.readSTRef prioRef
                 if firstPrio == (1/0)
                     then pure False
@@ -202,7 +201,6 @@ dijkstraTerminate terminate src = do
         whenM (not <$> R.lift (Q.isEmpty pq)) $ do
             prio <- R.lift $ Q.minKey (queue state)
             v <- dequeueVertex
-            traceM $ "Dequeued " <> show (DG.vidInt v) <> " prio: " <> show prio
             unlessM (terminate v prio) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
                 forM_ edgeList relax
