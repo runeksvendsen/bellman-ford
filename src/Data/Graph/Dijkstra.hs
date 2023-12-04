@@ -10,6 +10,7 @@ module Data.Graph.Dijkstra
 , dijkstraSourceSinkSamePrio
   -- * Queries
 , pathTo
+, distTo'
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
