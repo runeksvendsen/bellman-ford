@@ -292,11 +292,11 @@ lookupVertex
 lookupVertex (Digraph _ _ indexMap) vertex = do
     HT.lookup indexMap vertex
 
-insertEdge__
+insertIdxEdge
     :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
     -> IdxEdge v meta
     -> ST s ()
-insertEdge__ vertexArray idxEdge@IdxEdge{..} = do
+insertIdxEdge vertexArray idxEdge@IdxEdge{..} = do
     outEdgeMap <- Arr.readArray vertexArray _eFromIdx
     HT.insert outEdgeMap _eToIdx idxEdge
 
@@ -305,7 +305,7 @@ updateEdge
     :: Digraph s v meta
     -> IdxEdge v meta
     -> ST s ()
-updateEdge (Digraph _ vertexArray _) = insertEdge__ vertexArray
+updateEdge (Digraph _ vertexArray _) = insertIdxEdge vertexArray
 
 -- Insert/overwrite an existing edge in the graph
 insertEdge
