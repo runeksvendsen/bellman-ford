@@ -181,7 +181,9 @@ fromIdxEdges idxEdges = do
     forM_ uniqueVertices (uncurry $ HT.insert indexMap)
     fromIdxEdges_ vertexCount' indexMap idxEdges
   where
-    vertexCount' = length uniqueVertices
+    vertexCount'
+        | null idxEdges = 0
+        | otherwise = 1 + vidInt (maximum $ map snd uniqueVertices)
     uniqueVertices = U.nubOrd $
         map (\e -> (eFrom e, eFromIdx e)) idxEdges ++
         map (\e -> (eTo e, eToIdx e)) idxEdges
