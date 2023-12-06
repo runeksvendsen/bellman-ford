@@ -253,6 +253,7 @@ data IDigraph v meta =
         -- ^ Outgoing edges array, including list length
         ![(v, VertexId)] -- TODO: !(IArr.Array v VertexId)
         -- ^ vertex-to-VertexId map
+            deriving (Eq, Show)
 
 instance (NFData v, NFData meta) => NFData (IDigraph v meta) where
     rnf (IDigraph vc vertexArray indexMap) =
