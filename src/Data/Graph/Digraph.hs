@@ -262,9 +262,8 @@ insertEdge_
 insertEdge_ vertexArray indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
-    outEdgeMap <- Arr.readArray vertexArray fromIdx
     let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
-    HT.insert outEdgeMap toIdx idxEdge
+    insertIdxEdge vertexArray idxEdge
   where
     from = E.fromNode edge
     to = E.toNode edge
