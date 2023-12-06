@@ -199,16 +199,12 @@ fromEdgesMulti =
 
 -- | Return a copy of the input graph where 'flipEdge' has been applied to all edges in the graph
 flipGraphEdges
-    :: ( Ord v
-       , E.DirectedEdge [IdxEdge v meta] v meta
-       )
-    => Digraph s v meta
+    :: Digraph s v meta
     -> ST s (Digraph s v meta)
 flipGraphEdges g = do
-    -- TODO: optimize to avoid re-indexing everything
     vertexList <- vertices g
     edges <- forM vertexList (outgoingEdges g)
-    fromEdges (map flipEdge $ concat edges)
+    fromIdxEdges (digraphVertexCount g) (digraphVertexIndex g) (map flipEdge $ concat edges)
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta =
