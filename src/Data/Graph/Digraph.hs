@@ -136,22 +136,32 @@ data Digraph s v meta = Digraph
 
 fromEdges
     :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
-    => [edge]   -- ^ (meta, from, to)
+    => [edge]
     -> ST s (Digraph s v meta)
 fromEdges edges = do
     -- Create vertex->index map
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
     forM_ (zip uniqueVertices [0..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
-    -- Initialize vertex array
-    outEdgeMapList <- sequence $ replicate vertexCount' HT.new
-    vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount'-1)) outEdgeMapList
     -- Populate vertex array
-    mapM_ (insertEdge_ vertexArray indexMap) edges
-    return $ Digraph vertexCount' vertexArray indexMap
+    idxEdges <- mapM (createIdxEdge indexMap) edges
+    fromIdxEdges vertexCount' indexMap idxEdges
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+
+fromIdxEdges
+    :: Int
+    -> HT.HashTable s v VertexId
+    -> [IdxEdge v meta]
+    -> ST s (Digraph s v meta)
+fromIdxEdges vertexCount' indexMap idxEdges = do
+    -- Initialize vertex array
+    outEdgeMapList <- replicateM vertexCount' HT.new
+    vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount' - 1)) outEdgeMapList
+    -- Populate vertex array
+    mapM_ (insertIdxEdge vertexArray) idxEdges
+    return $ Digraph vertexCount' vertexArray indexMap
 
 -- | One or more edges with the same src and dst vertex
 data NonEmptyEdges v meta = NonEmptyEdges
@@ -253,17 +263,16 @@ emptyClone (Digraph vc _ indexMap) = do
     -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
     return $ Digraph vc newVertexArray indexMap
 
-insertEdge_
+createIdxEdge
     :: E.DirectedEdge edge v meta
-    => Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
-    -> HT.HashTable s v VertexId
+    => HT.HashTable s v VertexId
     -> edge
-    -> ST s ()
-insertEdge_ vertexArray indexMap edge = do
+    -> ST s (IdxEdge v meta)
+createIdxEdge indexMap edge = do
     fromIdx <- lookup' from
     toIdx <- lookup' to
     let idxEdge = IdxEdge { eMeta = E.metaData edge, _eFrom = from, _eTo = to, _eFromIdx = fromIdx, _eToIdx = toIdx }
-    insertIdxEdge vertexArray idxEdge
+    pure idxEdge
   where
     from = E.fromNode edge
     to = E.toNode edge
