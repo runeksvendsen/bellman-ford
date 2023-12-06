@@ -33,7 +33,6 @@ module Data.Graph.Digraph
 , freeze
 , thaw
 , flipGraphEdges
-, sameDigraphST
 , IDigraph
   -- * Edge/vertex
 , VertexId
@@ -136,23 +135,6 @@ data Digraph s v meta = Digraph
       -- | v -> vertexId
     , digraphVertexIndex :: {-# UNPACK #-} !(HT.HashTable s v VertexId)
     }
-
-sameDigraphST
-    :: Eq v
-    => Digraph s v meta
-    -> Digraph s v meta
-    -> ST s Bool
-sameDigraphST g1 g2 = do
-    sameVertexIndex <- sameVertexIndexST
-    pure $
-        digraphVertexCount g1 == digraphVertexCount g2
-        && digraphVertexArray g1 == digraphVertexArray g2
-        && sameVertexIndex
-  where
-    sameVertexIndexST = do
-        kv1 <- keyValueSet (digraphVertexIndex g1)
-        kv2 <- keyValueSet (digraphVertexIndex g2)
-        pure $ kv1 == kv2
 
 fromEdges
     :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)

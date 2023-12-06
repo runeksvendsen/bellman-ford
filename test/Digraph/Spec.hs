@@ -18,7 +18,7 @@ import qualified Data.Graph.Digraph                 as Lib
 import           Data.List                          (groupBy, sortOn, sort)
 
 import qualified Test.Hspec.SmallCheck              ()
-import           Test.Hspec.Expectations.Pretty            (Expectation, shouldBe)
+import           Test.Hspec.Expectations.Pretty     (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
 
 
@@ -35,6 +35,9 @@ spec = Tasty.testGroup "Digraph" $
        ]
     , Tasty.testGroup "edgeCount"
        [ QS.testProperty "== outgoing edge count for all vertices" (edgeCountEqualsOutgoingCountForallVertices @Double)
+       ]
+    , Tasty.testGroup "fromIdxEdges"
+       [ QS.testProperty "produces the same graph given edges from 'collectOutgoing'" (testFromIdxEdges @Double)
        ]
     ] ++ [Digraph.DotGraph.spec]
 
@@ -116,3 +119,19 @@ edgeCountTest dg =
     lookupCount totalCount vertex =
         Lib.outgoingEdges dg vertex >>=
             foldM (\ !innerCount _ -> return $ innerCount+1) totalCount
+
+testFromIdxEdges
+    :: ( Show weight
+       , Eq weight
+       )
+    => [TestEdge weight]
+    -> Expectation
+testFromIdxEdges edges = do
+    (igraph, igraph') <- stToIO $ do
+        graph <- Lib.fromEdges edges
+        idxEdges <- collectOutgoing graph
+        graph' <- Lib.fromIdxEdges idxEdges
+        igraph <- Lib.freeze graph
+        igraph' <- Lib.freeze graph'
+        pure (igraph, igraph')
+    igraph' `shouldBe` igraph
