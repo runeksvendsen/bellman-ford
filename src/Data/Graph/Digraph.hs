@@ -28,6 +28,7 @@ module Data.Graph.Digraph
 , outgoingEdges
 , outgoingEdges'
 , lookupVertex
+, lookupVertexReverseSlowTMP
 , freeze
 , thaw
 , flipGraphEdges
@@ -125,12 +126,13 @@ eToIdx = _eToIdx
 ------------------------------------------------------------------
 
 data Digraph s v meta = Digraph
-                    -- vertex count
-    {-# UNPACK #-} !Int
-                    -- vertexId -> (dstVertexId -> outgoingEdge)
-    {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
-                    -- v -> vertexId
-    {-# UNPACK #-} !(HT.HashTable s v VertexId)
+    { -- | vertex count
+      digraphVertexCount :: {-# UNPACK #-} !Int
+      -- | vertexId -> (dstVertexId -> outgoingEdge)
+    , digraphVertexArray :: {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
+      -- | v -> vertexId
+    , digraphVertexIndex :: {-# UNPACK #-} !(HT.HashTable s v VertexId)
+    }
 
 fromEdges
     :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
@@ -267,6 +269,19 @@ insertEdge_ vertexArray indexMap edge = do
     from = E.fromNode edge
     to = E.toNode edge
     lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
+
+lookupVertexReverseSlowTMP
+    :: Digraph s v meta
+    -> VertexId
+    -> ST s (Maybe v)
+lookupVertexReverseSlowTMP dg vid = do
+    let ht = digraphVertexIndex dg
+    size <- HT.size ht
+    kvList <- keyValueSet ht
+    map' <- HT.newSized size
+    forM_ kvList $ \(k, v) ->
+        HT.insert map' v k
+    HT.lookup map' vid
 
 -- | Look up vertex by label
 lookupVertex

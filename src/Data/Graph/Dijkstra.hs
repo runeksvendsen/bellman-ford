@@ -8,6 +8,7 @@ module Data.Graph.Dijkstra
 , dijkstra
 , dijkstraSourceSink
 , dijkstraSourceSinkSamePrio
+, dijkstraTerminateDstPrio
   -- * Queries
 , pathTo
 , distTo'
@@ -78,6 +79,9 @@ runDijkstraTraceGeneric
     -> ST s a
 runDijkstraTraceGeneric traceFun graph weightCombine zero action = do
     -- TODO: assert all edge weights >= 0
+    vCount <- DG.vertexCount graph
+    eCount <- DG.edgeCount graph
+    traceM $ "runDijkstra: vertexCount: " <> show vCount <> ", edgeCount: " <> show eCount
     mutState <- initState graph
     let state = State traceFun graph weightCombine zero mutState
     R.runReaderT action state
@@ -159,7 +163,25 @@ dijkstraSourceSinkSamePrio
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (v, v)    -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta ()
-dijkstraSourceSinkSamePrio (src, dst) = do
+dijkstraSourceSinkSamePrio =
+    dijkstraTerminateDstPrio $ \_ prio dstPrio -> pure $ prio /= dstPrio
+
+-- | Same as 'dijkstraTerminate' but the termination function includes the priority
+--   of the destination vertex.
+--   This means the termination function isn't executed until the priority of the
+--   destination vertex is known.
+dijkstraTerminateDstPrio
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => (DG.VertexId -> Double -> Double -> Dijkstra s v meta Bool)
+       -- ^ Terminate when this function returns 'True'.
+       --   Args:
+       --     (1) dequeued vertex
+       --     (2) priority of dequeued vertex
+       --     (3) priority of destination vertex
+    -> (v, v)
+       -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta ()
+dijkstraTerminateDstPrio fTerminate (src, dst) = do
     graph <- R.asks sGraph
     mVid <- R.lift $ DG.lookupVertex graph dst
     prioRef <- R.lift $ Ref.newSTRef (1/0)
@@ -167,17 +189,20 @@ dijkstraSourceSinkSamePrio (src, dst) = do
         let terminate vid' prio = do
                 when (vid' == vid) $ do
                     R.lift $ Ref.writeSTRef prioRef prio
-                firstPrio <- R.lift $ Ref.readSTRef prioRef
-                if firstPrio == (1/0)
+                dstPrio <- R.lift $ Ref.readSTRef prioRef
+                if dstPrio == (1/0)
                     then pure False
-                    else pure $ prio /= firstPrio
+                    else fTerminate vid' prio dstPrio
         dijkstraTerminate terminate src
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (DG.VertexId -> Double -> Dijkstra s v meta Bool)
-    -- ^ Terminate when this function returns 'True'
+    -- ^ Terminate when this function returns 'True'.
+    -- ^ Args:
+    --     (1) dequeued vertex
+    --     (2) priority of dequeued vertex
     -> v
     -- ^ Source vertex
     -> Dijkstra s v meta ()
@@ -199,10 +224,18 @@ dijkstraTerminate terminate src = do
 
     go state graph = do
         let pq = queue state
-        whenM (not <$> R.lift (Q.isEmpty pq)) $ do
+        queueIsEmpty <- R.lift (Q.isEmpty pq)
+        when queueIsEmpty $
+            traceM "#### EMPTY QUEUE"
+        unless queueIsEmpty $ do
             prio <- R.lift $ Q.minKey (queue state)
             v <- dequeueVertex
-            unlessM (terminate v prio) $ do
+            vLbl <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
+            -- traceM $ "dequeue: prio: " <> show prio <> " vertex: " <> fromMaybe "" (show <$> vLbl)
+            t <- terminate v prio
+            when t $
+                traceM "### TERMINATE"
+            unless t $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
                 forM_ edgeList relax
                 go state graph
