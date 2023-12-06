@@ -266,9 +266,9 @@ relax vertex = do
             -- Look up current distance to "to" vertex
             distToTo <- R.lift $ Weight.readArray (distTo state) toInt
             -- Actual relaxation
+            _ <- R.lift $ traceRelax $ TraceEvent_Relax edge distToTo
             let newToWeight = calcWeight distToFrom (DG.eMeta edge)
             when (newToWeight `isLessThan` distToTo) $ R.lift $ do
-                _ <- traceRelax $ TraceEvent_Relax edge newToWeight
                 Weight.writeArray (distTo state) toInt newToWeight
                 Arr.writeArray (edgeTo state) toInt (Just edge)
                 unlessM (Arr.readArray (onQueue state) toInt) $

@@ -19,7 +19,7 @@ data TraceEvent v meta weight
         !(DG.IdxEdge v meta)
         -- ^ The edge that's relaxed
         !weight
-        -- ^ The new distance to the edge's /destination/-vertex
+        -- ^ The /current/ distance to the edge's /destination/-vertex
     | TraceEvent_Init
       -- ^ 'bellmanFord' is started
         !(v, DG.VertexId)
@@ -36,12 +36,12 @@ renderTraceEvent
     => TraceEvent v meta weight
     -> String
 renderTraceEvent = \case
-    TraceEvent_Relax edge newToWeight -> unwords
+    TraceEvent_Relax edge distToTo -> unwords
         [ "Relaxing edge", showEdge edge <> "."
-        , "Updating 'distTo' for"
+        , "Current 'distTo' for"
         , showIndexedVertex (DG.eTo edge, DG.eToIdx edge)
-        , "to"
-        , show newToWeight <> "."
+        , "is"
+        , show distToTo <> "."
         ]
     TraceEvent_Init srcVertex weight -> unwords
         [ "Starting Bellman-Ford for source vertex"

@@ -259,9 +259,9 @@ relax edge = do
         -- Look up current distance to "to" vertex
         distToTo <- distTo' to
         -- Actual relaxation
+        R.lift $ trace' $ TraceEvent_Relax edge distToTo
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
         when (distToTo > newToWeight + epsilon) $ R.lift $ do
-            trace' $ TraceEvent_Relax edge newToWeight
             Arr.writeArray (distTo state) toInt newToWeight -- distTo[w] = distTo[v] + e.weight()
             Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
             queueContainsToNode <- Q.contains (queue state) toInt
