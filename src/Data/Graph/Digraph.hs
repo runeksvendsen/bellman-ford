@@ -16,6 +16,7 @@ module Data.Graph.Digraph
 ( -- * Graph
   Digraph
 , fromEdges
+, fromIdxEdges
 , fromEdgesMulti
 , updateEdge
 , insertEdge
@@ -145,17 +146,34 @@ fromEdges edges = do
     forM_ (zip uniqueVertices [0..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
     -- Populate vertex array
     idxEdges <- mapM (createIdxEdge indexMap) edges
-    fromIdxEdges vertexCount' indexMap idxEdges
+    fromIdxEdges_ vertexCount' indexMap idxEdges
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
 
+-- | An optimization of 'fromEdges' for 'IdxEdge' edges
 fromIdxEdges
+    :: (Hashable v, Ord v)
+    => [IdxEdge v meta]
+    -> ST s (Digraph s v meta)
+fromIdxEdges idxEdges = do
+    -- Create vertex->index map
+    indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
+    -- Initialize vertex-index map
+    forM_ uniqueVertices (uncurry $ HT.insert indexMap)
+    fromIdxEdges_ vertexCount' indexMap idxEdges
+  where
+    vertexCount' = length uniqueVertices
+    uniqueVertices = U.nubOrd $
+        map (\e -> (eFrom e, eFromIdx e)) idxEdges ++
+        map (\e -> (eTo e, eToIdx e)) idxEdges
+
+fromIdxEdges_
     :: Int
     -> HT.HashTable s v VertexId
     -> [IdxEdge v meta]
     -> ST s (Digraph s v meta)
-fromIdxEdges vertexCount' indexMap idxEdges = do
+fromIdxEdges_ vertexCount' indexMap idxEdges = do
     -- Initialize vertex array
     outEdgeMapList <- replicateM vertexCount' HT.new
     vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount' - 1)) outEdgeMapList
@@ -204,7 +222,7 @@ flipGraphEdges
 flipGraphEdges g = do
     vertexList <- vertices g
     edges <- forM vertexList (outgoingEdges g)
-    fromIdxEdges (digraphVertexCount g) (digraphVertexIndex g) (map flipEdge $ concat edges)
+    fromIdxEdges_ (digraphVertexCount g) (digraphVertexIndex g) (map flipEdge $ concat edges)
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta =
