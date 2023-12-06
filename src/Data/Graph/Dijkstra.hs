@@ -79,9 +79,6 @@ runDijkstraTraceGeneric
     -> ST s a
 runDijkstraTraceGeneric traceFun graph weightCombine zero action = do
     -- TODO: assert all edge weights >= 0
-    vCount <- DG.vertexCount graph
-    eCount <- DG.edgeCount graph
-    traceM $ "runDijkstra: vertexCount: " <> show vCount <> ", edgeCount: " <> show eCount
     mutState <- initState graph
     let state = State traceFun graph weightCombine zero mutState
     R.runReaderT action state
@@ -225,16 +222,10 @@ dijkstraTerminate terminate src = do
     go state graph = do
         let pq = queue state
         queueIsEmpty <- R.lift (Q.isEmpty pq)
-        when queueIsEmpty $
-            traceM "#### EMPTY QUEUE"
         unless queueIsEmpty $ do
             prio <- R.lift $ Q.minKey (queue state)
             v <- dequeueVertex
-            vLbl <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
-            -- traceM $ "dequeue: prio: " <> show prio <> " vertex: " <> fromMaybe "" (show <$> vLbl)
             t <- terminate v prio
-            when t $
-                traceM "### TERMINATE"
             unless t $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
                 forM_ edgeList relax
