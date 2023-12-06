@@ -69,6 +69,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import Data.List (sortOn)
 import qualified Data.Text.Lazy as LT
+import Data.Bifunctor (first)
 
 ------------------------------------------------------------------
 ------------------  Edge with indexed vertices  ------------------
@@ -267,9 +268,16 @@ freeze
     -> ST s (IDigraph v meta)
 freeze (Digraph vc vertexArray indexMap) = do
     frozenArray <- Arr.freeze vertexArray
-    kvArray <- sequence $ fmap keyValueSetWithLength frozenArray
+    kvArray <- mapM keyValueSetWithLength frozenArray
     kvSet <- keyValueSet indexMap
-    return $ IDigraph vc kvArray kvSet
+    -- NOTE: This is done so that two 'Digraph's containing the same edges and
+    --       same vertices (with the same vertex indices) will produce 'IDigraph's
+    --       that are equal (==).
+    --       If this step is left out, then the insertion order into the
+    --       'HT.HashTable' will affect whether or not the resulting two
+    --       'IDigraph's are equal.
+    let kvArray' = first (sortOn fst) <$> kvArray
+    return $ IDigraph vc kvArray' kvSet
 
 -- | Convert an immutable graph into an mutable graph.
 thaw
