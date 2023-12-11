@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
@@ -9,6 +10,7 @@ module Data.Graph.Dijkstra
 , dijkstraSourceSink
 , dijkstraSourceSinkSamePrio
 , dijkstraTerminateDstPrio
+, dijkstraKShortestPathsWIP
   -- * Queries
 , pathTo
 , distTo'
@@ -101,6 +103,8 @@ data MState s v meta = MState
       distTo    :: STUArray s Int Double
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
+      -- | TODO
+    , dirtyVertex :: STUArray s Int Bool
       -- | queue of vertices to relax
     , queue     :: Q.IndexMinPQ s Double
     }
@@ -117,21 +121,13 @@ resetState
 resetState mutState = R.lift $ do
     fillArray (distTo mutState) (1/0)
     fillArray (edgeTo mutState) Nothing
+    fillArray (dirtyVertex mutState) False
     emptyQueue (queue mutState)
   where
     emptyQueue
         :: Q.IndexMinPQ s Double
         -> ST s ()
     emptyQueue = void . Q.emptyAsSortedList
-
-    fillArray
-        :: Arr.MArray a e (ST s)
-        => a Int e
-        -> e
-        -> (ST s) ()
-    fillArray arr value = do
-        indices <- range <$> Arr.getBounds arr
-        forM_ indices (\idx -> Arr.writeArray arr idx value)
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstra
@@ -192,6 +188,39 @@ dijkstraTerminateDstPrio fTerminate (src, dst) = do
                     else fTerminate vid' prio dstPrio
         dijkstraTerminate terminate src
 
+-- | WIP: 'k' shortest paths
+dijkstraKShortestPathsWIP
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => Int
+       -- ^ Maximum number of shortest paths to return
+    -> (v, v)
+       -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+dijkstraKShortestPathsWIP k (src, dst) = do
+    graph <- R.asks sGraph
+    state <- R.asks sMState
+    mDstVid <- R.lift $ DG.lookupVertex graph dst
+    resultRef <- R.lift $ Ref.newSTRef []
+    resultCountRef <- R.lift $ Ref.newSTRef 0
+    forM mDstVid $ \dstVid -> do
+        dijkstraTerminate (fTerminate state resultRef resultCountRef dstVid) src
+        R.lift $ Ref.readSTRef resultRef
+  where
+    fTerminate state resultRef resultCountRef dstVid vid' _
+        | vid' /= dstVid = pure False
+        | otherwise = do
+            mPath <- pathTo dst
+            -- NOTE: 'pathTo' returns 'Nothing' iff 'DG.lookupVertex' returns 'Nothing' and this function is not called in that case.
+            -- TODO: add a version of 'foldPathTo' that takes a 'DG.VertexId'
+            let path = fromMaybe (error "BUG: 'pathTo' returned Nothing") mPath
+            R.lift $ do
+                Ref.modifySTRef' resultRef (path :)
+                oldResultCount <- Ref.readSTRef resultCountRef
+                let !resultCount = oldResultCount + 1
+                Ref.writeSTRef resultCountRef resultCount
+                fillArray (dirtyVertex state) True
+                pure $ resultCount >= k
+
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
@@ -249,12 +278,15 @@ relax edge = do
             toInt = DG.vidInt to
         -- Look up current distance to "to" vertex
         distToTo <- distTo' to
+        -- Should we update 'distTo' and 'edgeTo' regardless of 'newToWeight'?
+        isDirty <- R.lift $ Arr.readArray (dirtyVertex state) toInt
         -- Actual relaxation
         R.lift $ trace' $ TraceEvent_Relax edge distToTo
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
-        when (distToTo > newToWeight + epsilon) $ R.lift $ do
+        when (isDirty || distToTo > newToWeight + epsilon) $ R.lift $ do
             Arr.writeArray (distTo state) toInt newToWeight -- distTo[w] = distTo[v] + e.weight()
             Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
+            Arr.writeArray (dirtyVertex state) toInt False
             queueContainsToNode <- Q.contains (queue state) toInt
             if queueContainsToNode -- if (pq.contains(w))
                 then Q.decreaseKey (queue state) toInt newToWeight -- pq.decreaseKey(w, distTo[w])
@@ -323,6 +355,7 @@ initState graph = do
     MState
         <$> Arr.newArray (0, vertexCount) (1/0)      -- distTo
         <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
+        <*> Arr.newArray (0, vertexCount) False      -- dirtyVertex
         <*> Q.newIndexMinPQ vertexCount                                           -- queue
 
 -- | Add vertex to queue (helper function)
@@ -340,6 +373,15 @@ dequeueVertex
 dequeueVertex = do
     state <- R.asks sMState
     unsafeCoerce <$> R.lift (Q.delMin (queue state))
+
+fillArray
+    :: (Arr.MArray a e (ST s), Arr.Ix i)
+    => a i e
+    -> e
+    -> (ST s) ()
+fillArray arr value = do
+    indices <- range <$> Arr.getBounds arr
+    forM_ indices (\idx -> Arr.writeArray arr idx value)
 
 -- | check optimality conditions: either
 -- (i) there exists a negative cycle reachable from s
