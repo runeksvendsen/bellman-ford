@@ -131,6 +131,8 @@ data Digraph s v meta = Digraph
     { -- | vertex count
       digraphVertexCount :: {-# UNPACK #-} !Int
       -- | vertexId -> (dstVertexId -> outgoingEdge)
+      --
+      -- NOTE: A 'HT.HashTable' is used instead of another array to avoid n² memory usage (where n = vertex count)
     , digraphVertexArray :: {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
       -- | v -> vertexId
     , digraphVertexIndex :: {-# UNPACK #-} !(HT.HashTable s v VertexId)
