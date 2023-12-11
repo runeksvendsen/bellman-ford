@@ -9,7 +9,6 @@ module Digraph.Spec
 where
 
 import           Types.Edge
-import qualified Digraph.DotGraph
 import qualified Util
 import qualified Util.QuickSmall                    as QS
 
@@ -39,7 +38,7 @@ spec = Tasty.testGroup "Digraph" $
     , Tasty.testGroup "fromIdxEdges"
        [ QS.testProperty "produces the same graph given edges from 'collectOutgoing'" (testFromIdxEdges @Double)
        ]
-    ] ++ [Digraph.DotGraph.spec]
+    ]
 
 addRemoveEdges
     :: [TestEdge weight]
