@@ -240,7 +240,7 @@ relax
 relax edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    distToFrom <- distTo' (DG.eFromIdx edge)
+    distToFrom <- distTo' (DG.eFromIdx edge) -- shortest distance (that we know of so far) to the edge's _from_ vertex
     handleEdge state calcWeight distToFrom
   where
     handleEdge state calcWeight distToFrom = do
