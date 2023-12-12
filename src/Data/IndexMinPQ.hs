@@ -9,6 +9,7 @@ module Data.IndexMinPQ
 , insert
 , minKey
 , delMin
+, keyOf
 , contains
 , decreaseKey
 , emptyAsSortedList
@@ -156,6 +157,18 @@ delMin pq = do
   debugTrace pq "delMin"
   pure min'
 
+-- | Get the key for the given index.
+--
+--  Throws an error if the index does not exist.
+keyOf
+  :: IndexMinPQ s key
+  -> Int
+  -> ST s key
+keyOf pq i = do
+    unlessM (contains pq i) $
+      fail $ "no such index: " <> show i
+    Arr.readArray (state_keys pq) i >>= maybe (error $ "BUG: keyOf: index exists but 'state_keys' does not contain a key for index: " <> show i) pure
+
 contains
   :: IndexMinPQ s key
   -> Int
@@ -172,9 +185,7 @@ decreaseKey
   -> ST s ()
 decreaseKey pq i key = do
   validateIndex pq i
-  whenM (not <$> contains pq i) $ -- if (!contains(i))
-    fail $ "index is not in the priority queue: " <> show i
-  iKey <- Arr.readArray (state_keys pq) i >>= maybe (fail $ "decreaseKey: no such index: " <> show i) pure
+  iKey <- keyOf pq i
   when (iKey == key) $ -- if (keys[i].compareTo(key) == 0)
     fail $ "Calling decreaseKey() with a key equal to the key in the priority queue: " <> show (i, key)
   when (key > iKey) $ -- if (keys[i].compareTo(key) < 0)
