@@ -1,3 +1,4 @@
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE BangPatterns #-}
 -- | Transaction of Robert Sedgewick and Kevin Wayne's @IndexMinPQ.java@ to Haskell.
 --
@@ -26,7 +27,7 @@ import Debug.Trace (traceM)
 --
 -- See https://algs4.cs.princeton.edu/44sp/IndexMinPQ.java.html.
 data IndexMinPQ s key = IndexMinPQ
-  { state_maxN :: {-# UNPACK #-} !Int
+  { state_maxN :: {-# UNPACK #-} Int
     -- ^ maximum number of elements on PQ
   , state_n :: MV.MutVar s Int
     -- ^ number of elements on PQ
@@ -38,7 +39,7 @@ data IndexMinPQ s key = IndexMinPQ
     -- ^ keys[i] = priority of i
     --
     --   NOTE: must be non-strict (since we store /bottom/ for non-existing keys).
-  , indexMinPQ_trace :: !Bool
+  , indexMinPQ_trace :: Bool
     -- ^ print debug/trace info
   }
 
