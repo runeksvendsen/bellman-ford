@@ -34,8 +34,10 @@ data IndexMinPQ s key = IndexMinPQ
     -- ^ binary heap using 1-based indexing
   , state_qp :: STUArray s Int Int
     -- ^ inverse of pq - qp[pq[i]] = pq[qp[i]] = i
-  , state_keys :: STArray s Int (Maybe key)
+  , state_keys :: STArray s Int key
     -- ^ keys[i] = priority of i
+    --
+    --   NOTE: must be non-strict (since we store /bottom/ for non-existing keys).
   , indexMinPQ_trace :: !Bool
     -- ^ print debug/trace info
   }
@@ -87,7 +89,7 @@ newIndexMinPQ maxN = do
   n <- MV.newMutVar 0
   pq <- Arr.newArray (0, maxN + 1) 0
   qp <- Arr.newArray (0, maxN + 1) (-1)
-  keys <- Arr.newArray (0, maxN + 1) Nothing
+  keys <- Arr.newListArray (0, maxN + 1) [mkKeysError i | i <- [0, maxN + 1]]
   pure $ IndexMinPQ
     { indexMinPQ_trace = False
     , state_maxN = maxN
@@ -116,7 +118,7 @@ insert pq i key = do
   n <- modifyMutVar (state_n pq) (+ 1) -- n++
   Arr.writeArray (state_qp pq) i n -- qp[i] = n
   Arr.writeArray (state_pq pq) n i -- pq[n] = i
-  Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
+  Arr.writeArray (state_keys pq) i key -- keys[i] = key
   swim pq n -- swim(n)
   debugTrace pq $ "insert " <> show i <> " " <> show key
 
@@ -134,11 +136,7 @@ minKey
   -> ST s key
 minKey pq = do
   minKeyIndex <- minIndex pq -- pq[1]
-  mKey <- Arr.readArray (state_keys pq) minKeyIndex -- keys[pq[1]]
-  maybe (failOnBug minKeyIndex) pure mKey
-  where
-    failOnBug minKeyIndex = do
-      assertFail pq $ "BUG: minKey: no key for index: " <> show minKeyIndex
+  Arr.readArray (state_keys pq) minKeyIndex -- keys[pq[1]]
 
 delMin
   :: (Ord key, Show key)
@@ -152,7 +150,7 @@ delMin pq = do
   unlessM ((== min') <$> Arr.readArray (state_pq pq) prevN) $
     assertFail pq "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
   Arr.writeArray (state_qp pq) min' (-1) -- qp[min] = -1
-  Arr.writeArray (state_keys pq) min' Nothing -- keys[min] = null
+  Arr.writeArray (state_keys pq) min' (mkKeysError min') -- keys[min] = null
   Arr.writeArray (state_pq pq) prevN (-1) -- pq[n+1] = -1
   debugTrace pq "delMin"
   pure min'
@@ -167,7 +165,7 @@ keyOf
 keyOf pq i = do
     unlessM (contains pq i) $
       fail $ "no such index: " <> show i
-    Arr.readArray (state_keys pq) i >>= maybe (error $ "BUG: keyOf: index exists but 'state_keys' does not contain a key for index: " <> show i) pure
+    Arr.readArray (state_keys pq) i
 
 contains
   :: IndexMinPQ s key
@@ -190,7 +188,7 @@ decreaseKey pq i key = do
     fail $ "Calling decreaseKey() with a key equal to the key in the priority queue: " <> show (i, key)
   when (key > iKey) $ -- if (keys[i].compareTo(key) < 0)
     fail $ "Calling decreaseKey() with a key strictly greater than the key in the priority queue: " <> show (i, key, iKey)
-  Arr.writeArray (state_keys pq) i (Just key) -- keys[i] = key
+  Arr.writeArray (state_keys pq) i key -- keys[i] = key
   Arr.readArray (state_qp pq) i >>= swim pq -- swim(qp[i])
   debugTrace pq $ "decreaseKey " <> show i <> " " <> show key
 
@@ -231,6 +229,15 @@ assertQueueNotEmpty
 assertQueueNotEmpty pq =
   whenM ((== 0) <$> MV.readMutVar (state_n pq)) $
     fail "Priority queue underflow"
+
+-- | The bottom value stored in unused indices of 'state_keys'.
+--
+-- In the Java version /null/ is used. But we use a value
+-- with the same effect (a crash) but with a more descriptive
+-- crash message.
+mkKeysError :: Int -> key
+mkKeysError i =
+  error $ "BUG: 'state_keys' does not contain key for index: " <> show i
 
 greater
   :: Ord key
