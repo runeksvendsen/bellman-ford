@@ -289,7 +289,16 @@ relax edge = do
             Arr.writeArray (dirtyVertex state) toInt False
             queueContainsToNode <- Q.contains (queue state) toInt
             if queueContainsToNode -- if (pq.contains(w))
-                then Q.decreaseKey (queue state) toInt newToWeight -- pq.decreaseKey(w, distTo[w])
+                then do
+                    -- If 'toInt' is already on the queue with a lower priority,
+                    -- don't try to overwrite this with a higher priority.
+                    -- Note that this should never happen unless 'isDirty' is 'True'.
+                    doDecreaseKey <-
+                        if isDirty
+                            then (> newToWeight) <$> Q.keyOf (queue state) toInt
+                            else pure True
+                    when doDecreaseKey $
+                        Q.decreaseKey (queue state) toInt newToWeight -- pq.decreaseKey(w, distTo[w])
                 else enqueueVertex state to newToWeight -- pq.insert(w, distTo[w])
 
 distTo'
