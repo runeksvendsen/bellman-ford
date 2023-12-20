@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
@@ -9,6 +10,7 @@ module Data.Graph.Dijkstra
 , dijkstraSourceSink
 , dijkstraSourceSinkSamePrio
 , dijkstraTerminateDstPrio
+, dijkstraKShortestPaths
   -- * Queries
 , pathTo
 , distTo'
@@ -26,15 +28,17 @@ import           Data.Graph.SP.Types
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Data.Array.ST                      (STArray, STUArray)
-import qualified Data.IndexMinPQ as Q
+import qualified Data.TmpMinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import           Data.Ix                            (range)
-import Unsafe.Coerce (unsafeCoerce)
 import Debug.Trace (traceM)
 import qualified Data.STRef as Ref
+import Unsafe.Coerce (unsafeCoerce)
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
+
+type MyList a = [a]
 
 -- |
 runDijkstra
@@ -101,8 +105,8 @@ data MState s v meta = MState
       distTo    :: STUArray s Int Double
       -- | edgeTo[v] = last edge on shortest s->v path
     , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
-      -- | queue of vertices to relax
-    , queue     :: Q.IndexMinPQ s Double
+      -- | TODO
+    , queue     :: Q.TmpMinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -120,9 +124,8 @@ resetState mutState = R.lift $ do
     emptyQueue (queue mutState)
   where
     emptyQueue
-        :: Q.IndexMinPQ s Double
-        -> ST s ()
-    emptyQueue = void . Q.emptyAsSortedList
+        :: Q.TmpMinPQ s p v -> ST s ()
+    emptyQueue = Q.empty
 
     fillArray
         :: Arr.MArray a e (ST s)
@@ -138,7 +141,7 @@ dijkstra
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => v    -- ^ Source vertex
     -> Dijkstra s v meta ()
-dijkstra = dijkstraTerminate (const $ const $ pure False)
+dijkstra = dijkstraTerminate (const $ const $ const $ pure RelaxOutgoingEdges)
 
 -- | Source-sink shortest path
 --
@@ -152,7 +155,7 @@ dijkstraSourceSink (src, dst) = do
     graph <- R.asks sGraph
     mVid <- R.lift $ DG.lookupVertex graph dst
     forM_ mVid $ \vid ->
-        dijkstraTerminate (\vid' _ -> pure $ vid' == vid) src
+        dijkstraTerminate (\vid' _ _ -> pure $ if vid' == vid then Terminate else RelaxOutgoingEdges) src
 
 -- | Terminate when a vertex is dequeued whose priority
 --   is greater than the priority of the destination vertex
@@ -161,7 +164,7 @@ dijkstraSourceSinkSamePrio
     => (v, v)    -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta ()
 dijkstraSourceSinkSamePrio =
-    dijkstraTerminateDstPrio $ \_ prio dstPrio -> pure $ prio /= dstPrio
+    dijkstraTerminateDstPrio $ \_ prio dstPrio -> pure $ if prio /= dstPrio then Terminate else RelaxOutgoingEdges
 
 -- | Same as 'dijkstraTerminate' but the termination function includes the priority
 --   of the destination vertex.
@@ -169,7 +172,7 @@ dijkstraSourceSinkSamePrio =
 --   destination vertex is known.
 dijkstraTerminateDstPrio
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (DG.VertexId -> Double -> Double -> Dijkstra s v meta Bool)
+    => (DG.VertexId -> Double -> Double -> Dijkstra s v meta QueuePopAction)
        -- ^ Terminate when this function returns 'True'.
        --   Args:
        --     (1) dequeued vertex
@@ -183,25 +186,81 @@ dijkstraTerminateDstPrio fTerminate (src, dst) = do
     mVid <- R.lift $ DG.lookupVertex graph dst
     prioRef <- R.lift $ Ref.newSTRef (1/0)
     forM_ mVid $ \vid -> do
-        let terminate vid' prio = do
+        let terminate vid' prio _ = do
                 when (vid' == vid) $ do
                     R.lift $ Ref.writeSTRef prioRef prio
                 dstPrio <- R.lift $ Ref.readSTRef prioRef
                 if dstPrio == (1/0)
-                    then pure False
+                    then pure RelaxOutgoingEdges
                     else fTerminate vid' prio dstPrio
         dijkstraTerminate terminate src
+
+
+--- | WIP: 'k' shortest paths
+dijkstraKShortestPaths
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => Int
+       -- ^ Maximum number of shortest paths to return
+    -> (v, v)
+       -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+dijkstraKShortestPaths k (src, dst) = do
+    graph <- R.asks sGraph
+    mDstVid <- R.lift $ DG.lookupVertex graph dst
+    resultRef <- R.lift $ Ref.newSTRef []
+    resultCountRef <- R.lift $ Ref.newSTRef 0
+    -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085
+    count <- R.lift $ do
+        vertexCount <- fromIntegral <$> DG.vertexCount graph
+        Arr.newArray (0, vertexCount) (-1)
+    forM mDstVid $ \dstVid -> do
+        dijkstraTerminate (\u prio path -> R.lift (incrementCount count u) >> fTerminate count resultRef resultCountRef dstVid u prio path) src
+        R.lift $ Ref.readSTRef resultRef
+  where
+    fTerminate count resultRef resultCountRef dstVid u _ path = R.lift $ do
+        tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
+        if tCount < k
+            then do
+                uCount <- Arr.readArray count (DG.vidInt u) -- count[u]
+                if uCount >= k -- >= because we keep incrementing count[u]
+                    then pure SkipRelax
+                    else do
+                        when (u == dstVid) $
+                            accumResult resultRef resultCountRef (reverse path)
+                        pure RelaxOutgoingEdges
+            else pure Terminate
+
+    accumResult resultRef resultCountRef path = do
+        -- traceM $ "Found path: " <> show path
+        Ref.modifySTRef' resultRef (path :)
+        oldResultCount <- Ref.readSTRef resultCountRef
+        let !resultCount = oldResultCount + 1
+        Ref.writeSTRef resultCountRef resultCount
+
+    -- count[u] += 1
+    incrementCount :: STUArray s Int Int -> DG.VertexId -> ST s ()
+    incrementCount count u = do
+        vCount <- Arr.readArray count (DG.vidInt u)
+        Arr.writeArray count (DG.vidInt u) (unsafeCoerce $ vCount + 1)
+
+data QueuePopAction
+    = RelaxOutgoingEdges
+    | SkipRelax
+    | Terminate
+        deriving (Eq, Show, Ord)
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (DG.VertexId -> Double -> Dijkstra s v meta Bool)
+    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> Dijkstra s v meta QueuePopAction)
     -- ^ Terminate when this function returns 'True'.
     -- ^ Args:
-    --     (1) dequeued vertex
+    --     (1) dequeued vertex (@u@)
     --     (2) priority of dequeued vertex
+    --     (3) list of edges going from @u@ to @src@.
+    --         the first edge in the list points /to/ @u@ while the last edge in the list points /from/ @src@.
     -> v
-    -- ^ Source vertex
+    -- ^ Source vertex @src@
     -> Dijkstra s v meta ()
 dijkstraTerminate terminate src = do
     graph <- R.asks sGraph
@@ -215,29 +274,29 @@ dijkstraTerminate terminate src = do
         trace' <- R.asks sTrace
         R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
         R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
-        R.lift $ enqueueVertex state srcVertex zero
+        R.lift $ enqueueVertex state (srcVertex, []) zero
         go state graph
         R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
 
     go state graph = do
         let pq = queue state
-        queueIsEmpty <- R.lift (Q.isEmpty pq)
-        unless queueIsEmpty $ do
-            prio <- R.lift $ Q.minKey (queue state)
-            v <- dequeueVertex
-            t <- terminate v prio
-            unless t $ do
-                edgeList <- R.lift $ DG.outgoingEdges graph (unsafeCoerce v) -- TODO: avoid unsafeCoerce
-                forM_ edgeList relax
+        mPrioV <- R.lift $ Q.pop pq
+        forM_ mPrioV $ \(prio, (v, pathTo')) -> do
+            queuePopAction <- terminate v prio pathTo'
+            when (queuePopAction == RelaxOutgoingEdges) $ do
+                edgeList <- R.lift $ DG.outgoingEdges graph v
+                forM_ edgeList (relax pathTo')
+            unless (queuePopAction == Terminate) $
                 go state graph
 
 {-# SCC relax #-}
 -- |
 relax
     :: (Show v, Ord v, Hashable v, Show meta)
-    => DG.IdxEdge v meta
+    => MyList (DG.IdxEdge v meta)
+    -> DG.IdxEdge v meta
     -> Dijkstra s v meta ()
-relax edge = do
+relax pathTo' edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
     distToFrom <- distTo' (DG.eFromIdx edge) -- shortest distance (that we know of so far) to the edge's _from_ vertex
@@ -246,19 +305,13 @@ relax edge = do
     handleEdge state calcWeight distToFrom = do
         trace' <- R.asks sTrace
         let to = DG.eToIdx edge
-            toInt = DG.vidInt to
         -- Look up current distance to "to" vertex
         distToTo <- distTo' to
         -- Actual relaxation
         R.lift $ trace' $ TraceEvent_Relax edge distToTo
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
-        when (distToTo > newToWeight + epsilon) $ R.lift $ do
-            Arr.writeArray (distTo state) toInt newToWeight -- distTo[w] = distTo[v] + e.weight()
-            Arr.writeArray (edgeTo state) toInt (Just edge) -- edgeTo[w] = e
-            queueContainsToNode <- Q.contains (queue state) toInt
-            if queueContainsToNode -- if (pq.contains(w))
-                then Q.decreaseKey (queue state) toInt newToWeight -- pq.decreaseKey(w, distTo[w])
-                else enqueueVertex state to newToWeight -- pq.insert(w, distTo[w])
+        -- push (l + w, (edge :, v))
+        R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
 distTo'
     :: DG.VertexId
@@ -323,23 +376,16 @@ initState graph = do
     MState
         <$> Arr.newArray (0, vertexCount) (1/0)      -- distTo
         <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
-        <*> Q.newIndexMinPQ vertexCount                                           -- queue
+        <*> Q.new                                    -- queue
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
     :: MState s g e
-    -> DG.VertexId
+    -> (DG.VertexId, MyList (DG.IdxEdge g e))
     -> Double
     -> ST s ()
-enqueueVertex state vertex dist = do
-    Q.insert (queue state) (DG.vidInt vertex) dist
-
--- | Remove vertex from queue (helper function)
-dequeueVertex
-    :: Dijkstra s v meta DG.VertexId
-dequeueVertex = do
-    state <- R.asks sMState
-    unsafeCoerce <$> R.lift (Q.delMin (queue state))
+enqueueVertex state v dist = do
+    Q.push (queue state) dist v
 
 -- | check optimality conditions: either
 -- (i) there exists a negative cycle reachable from s
