@@ -68,7 +68,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import Data.List (sortOn)
 import qualified Data.Text.Lazy as LT
-import Data.Bifunctor (first)
+import qualified Data.Map.Strict as Map
 
 ------------------------------------------------------------------
 ------------------  Edge with indexed vertices  ------------------
@@ -234,9 +234,9 @@ data IDigraph v meta =
     IDigraph
         !Int
         -- ^ Vertex count
-        !(IArr.Array VertexId ([(VertexId, IdxEdge v meta)], Int))
-        -- ^ Outgoing edges array, including list length
-        ![(v, VertexId)] -- TODO: !(IArr.Array v VertexId)
+        !(IArr.Array VertexId (Map.Map VertexId (IdxEdge v meta)))
+        -- ^ Outgoing edges array
+        !(Map.Map v VertexId)
         -- ^ vertex-to-VertexId map
             deriving (Eq, Show)
 
@@ -248,20 +248,13 @@ instance (NFData v, NFData meta) => NFData (IDigraph v meta) where
 
 -- | Convert a mutable graph into an immutable graph.
 freeze
-    :: Digraph s v meta
+    :: Ord v
+    => Digraph s v meta
     -> ST s (IDigraph v meta)
 freeze (Digraph vc vertexArray indexMap) = do
-    frozenArray <- Arr.freeze vertexArray
-    kvArray <- mapM keyValueSetWithLength frozenArray
-    kvSet <- keyValueSet indexMap
-    -- NOTE: This is done so that two 'Digraph's containing the same edges and
-    --       same vertices (with the same vertex indices) will produce 'IDigraph's
-    --       that are equal (==).
-    --       If this step is left out, then the insertion order into the
-    --       'HT.HashTable' will affect whether or not the resulting two
-    --       'IDigraph's are equal.
-    let kvArray' = first (sortOn fst) <$> kvArray
-    return $ IDigraph vc kvArray' kvSet
+    vertexArray' <- mapM hashTableToMap =<< Arr.freeze vertexArray
+    indexMap' <- hashTableToMap indexMap
+    return $ IDigraph vc vertexArray' indexMap'
 
 -- | Convert an immutable graph into an mutable graph.
 thaw
@@ -269,14 +262,14 @@ thaw
     => IDigraph v meta
     -> ST s (Digraph s v meta)
 thaw (IDigraph vc frozenArray indexKv) = do
-    htArray <- sequence $ fmap fromKvSet frozenArray
+    htArray <- mapM fromMap frozenArray
     vertexArray <- Arr.thaw htArray
-    indexMap <- fromKvSet (indexKv, vc)
+    indexMap <- fromMap indexKv
     return $ Digraph vc vertexArray indexMap
   where
-    fromKvSet (kvSet, size) = do
-        ht <- HT.newSized size
-        foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht kvSet
+    fromMap map' = do
+        ht <- HT.newSized (Map.size map')
+        foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht (Map.assocs map')
 
 -- | Return a copy of the input graph that has the same vertices
 --   but with all edges removed.
@@ -517,9 +510,10 @@ keyValueSet
 keyValueSet =
     HT.foldM (\accum kv -> return $ kv : accum) []
 
--- | Set of map values
-keyValueSetWithLength
-    :: HT.HashTable s k v
-    -> ST s ([(k,v)], Int)
-keyValueSetWithLength =
-    HT.foldM (\(accum, !len) kv -> return (kv : accum, len + 1)) ([], 0)
+-- | Convert a 'HT.HashTable' to a 'Map.Map',
+hashTableToMap
+    :: Ord k
+    => HT.HashTable s k v
+    -> ST s (Map.Map k v)
+hashTableToMap =
+    HT.foldM (\(!accum) (k, v) -> return $ Map.insert k v accum) Map.empty
