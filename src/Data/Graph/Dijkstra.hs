@@ -208,17 +208,16 @@ dijkstraKShortestPaths k (src, dst) = do
     graph <- R.asks sGraph
     mDstVid <- R.lift $ DG.lookupVertex graph dst
     resultRef <- R.lift $ Ref.newSTRef []
-    resultCountRef <- R.lift $ Ref.newSTRef 0
     -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085.
     -- Keeps track of how many times each vertex has been relaxed.
     count <- R.lift $ do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
     forM mDstVid $ \dstVid -> do
-        dijkstraTerminate (fTerminate count resultRef resultCountRef dstVid) src
+        dijkstraTerminate (fTerminate count resultRef dstVid) src
         R.lift $ Ref.readSTRef resultRef
   where
-    fTerminate count resultRef resultCountRef dstVid u _ path = R.lift $ do
+    fTerminate count resultRef dstVid u _ path = R.lift $ do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
@@ -227,17 +226,13 @@ dijkstraKShortestPaths k (src, dst) = do
                     then pure SkipRelax
                     else do
                         when (u == dstVid) $
-                            accumResult resultRef resultCountRef (reverse path)
+                            accumResult resultRef (reverse path)
                         incrementCount count u
                         pure RelaxOutgoingEdges
             else pure Terminate
 
-    accumResult resultRef resultCountRef path = do
-        -- traceM $ "Found path: " <> show path
+    accumResult resultRef path = do
         Ref.modifySTRef' resultRef (path :)
-        oldResultCount <- Ref.readSTRef resultCountRef
-        let !resultCount = oldResultCount + 1
-        Ref.writeSTRef resultCountRef resultCount
 
     -- count[u] += 1
     incrementCount :: STUArray s Int Int -> DG.VertexId -> ST s ()
