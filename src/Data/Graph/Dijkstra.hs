@@ -35,6 +35,7 @@ import           Data.Ix                            (range)
 import Debug.Trace (traceM)
 import qualified Data.STRef as Ref
 import Unsafe.Coerce (unsafeCoerce)
+import qualified Data.STRef as ST
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -195,7 +196,6 @@ dijkstraTerminateDstPrio fTerminate (src, dst) = do
                     else fTerminate vid' prio dstPrio
         dijkstraTerminate terminate src
 
-
 --- | WIP: 'k' shortest paths
 dijkstraKShortestPaths
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
@@ -204,7 +204,23 @@ dijkstraKShortestPaths
     -> (v, v)
        -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
-dijkstraKShortestPaths k (src, dst) = do
+dijkstraKShortestPaths =
+    dijkstraShortestPaths (const $ const $ pure False)
+
+--- | WIP: 'k' shortest paths with pre-termination
+dijkstraShortestPaths
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => ([DG.IdxEdge v meta] -> Double -> ST s Bool)
+       -- ^ Return 'True' to terminate before /k/ paths have been found.
+       --   Arguments:
+       --     (1) A path from /src/ to /dst/
+       --     (2) The distance of the path
+    -> Int
+       -- ^ Maximum number of shortest paths to return (/k/)
+    -> (v, v)
+       -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
     graph <- R.asks sGraph
     mDstVid <- R.lift $ DG.lookupVertex graph dst
     resultRef <- R.lift $ Ref.newSTRef []
@@ -217,7 +233,7 @@ dijkstraKShortestPaths k (src, dst) = do
         dijkstraTerminate (fTerminate count resultRef dstVid) src
         R.lift $ Ref.readSTRef resultRef
   where
-    fTerminate count resultRef dstVid u _ path = R.lift $ do
+    fTerminate count resultRef dstVid u prio path = R.lift $ do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
@@ -225,10 +241,17 @@ dijkstraKShortestPaths k (src, dst) = do
                 if uCount >= k
                     then pure SkipRelax
                     else do
-                        when (u == dstVid) $
-                            accumResult resultRef (reverse path)
+                        let path' = reverse path
+                        earlyTerminate <-
+                            if u == dstVid
+                                then do
+                                    accumResult resultRef path'
+                                    fEarlyTerminate path' prio
+                                else pure False
                         incrementCount count u
-                        pure RelaxOutgoingEdges
+                        pure $ if earlyTerminate
+                            then Terminate
+                            else RelaxOutgoingEdges
             else pure Terminate
 
     accumResult resultRef path = do
