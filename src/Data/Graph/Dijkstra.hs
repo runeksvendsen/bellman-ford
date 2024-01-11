@@ -11,6 +11,7 @@ module Data.Graph.Dijkstra
 , dijkstraSourceSinkSamePrio
 , dijkstraTerminateDstPrio
 , dijkstraKShortestPaths
+, dijkstraShortestPathsLevels
   -- * Queries
 , pathTo
 , distTo'
@@ -206,6 +207,35 @@ dijkstraKShortestPaths
     -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
 dijkstraKShortestPaths =
     dijkstraShortestPaths (const $ const $ pure False)
+
+-- | TODO
+dijkstraShortestPathsLevels
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => Int -- ^ maximum number of shortest paths to find
+    -> Int -- ^ maximum number of "levels" to find
+    -> (v, v)
+    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+dijkstraShortestPathsLevels k numLevels srcDst = do
+    firstPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
+    lastPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
+    levelCountRef <- R.lift $ ST.newSTRef (0 :: Int)
+    let f path prio = do
+            firstPrio <- ST.readSTRef firstPrioRef
+            if firstPrio == (1/0)
+                then do
+                    ST.writeSTRef firstPrioRef prio
+                    pure False
+                else do
+                    fLevels lastPrioRef levelCountRef prio
+    dijkstraShortestPaths f k srcDst
+  where
+    fLevels lastPrioRef levelCountRef prio = do
+        lastPrio <- ST.readSTRef lastPrioRef
+        when (lastPrio /= 1/0) $ do
+            when (prio /= lastPrio) $
+                ST.modifySTRef' levelCountRef (+1)
+        ST.writeSTRef lastPrioRef prio
+        (>= numLevels) <$> ST.readSTRef levelCountRef
 
 --- | WIP: 'k' shortest paths with pre-termination
 dijkstraShortestPaths
