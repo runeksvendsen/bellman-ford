@@ -204,7 +204,7 @@ dijkstraKShortestPaths
        -- ^ Maximum number of shortest paths to return
     -> (v, v)
        -- ^ (source vertex, destination vertex)
-    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+    -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
 dijkstraKShortestPaths =
     dijkstraShortestPaths (const $ const $ pure False)
 
@@ -214,7 +214,7 @@ dijkstraShortestPathsLevels
     => Int -- ^ maximum number of shortest paths to find
     -> Int -- ^ maximum number of "levels" to find
     -> (v, v)
-    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+    -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
 dijkstraShortestPathsLevels k numLevels srcDst = do
     firstPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
     lastPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
@@ -249,7 +249,7 @@ dijkstraShortestPaths
        -- ^ Maximum number of shortest paths to return (/k/)
     -> (v, v)
        -- ^ (source vertex, destination vertex)
-    -> Dijkstra s v meta (Maybe [[DG.IdxEdge v meta]])
+    -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
 dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
     graph <- R.asks sGraph
     mDstVid <- R.lift $ DG.lookupVertex graph dst
@@ -275,7 +275,7 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                         earlyTerminate <-
                             if u == dstVid
                                 then do
-                                    accumResult resultRef path'
+                                    accumResult resultRef path' prio
                                     fEarlyTerminate path' prio
                                 else pure False
                         incrementCount count u
@@ -284,8 +284,8 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                             else RelaxOutgoingEdges
             else pure Terminate
 
-    accumResult resultRef path = do
-        Ref.modifySTRef' resultRef (path :)
+    accumResult resultRef path prio = do
+        Ref.modifySTRef' resultRef ((path, prio) :)
 
     -- count[u] += 1
     incrementCount :: STUArray s Int Int -> DG.VertexId -> ST s ()
