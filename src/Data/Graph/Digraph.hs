@@ -17,6 +17,7 @@ module Data.Graph.Digraph
   Digraph
 , fromEdges
 , fromIdxEdges
+, toEdges
 , fromEdgesMulti
 , updateEdge
 , insertEdge
@@ -30,6 +31,7 @@ module Data.Graph.Digraph
 , outgoingEdges'
 , lookupVertex
 , lookupVertexReverseSlowTMP
+, lookupEdge
 , freeze
 , thaw
 , flipGraphEdges
@@ -81,7 +83,7 @@ data IdxEdge v meta = IdxEdge
     , _eTo      :: !v
     , _eFromIdx :: {-# UNPACK #-} !VertexId
     , _eToIdx   :: {-# UNPACK #-} !VertexId
-    } deriving (Eq, Show, Functor, Generic)
+    } deriving (Eq, Show, Ord, Functor, Generic)
 
 instance (NFData v, NFData meta) => NFData (IdxEdge v meta)
 
@@ -130,7 +132,7 @@ eToIdx = _eToIdx
 data Digraph s v meta = Digraph
     { -- | vertex count
       digraphVertexCount :: {-# UNPACK #-} !Int
-      -- | vertexId -> (dstVertexId -> outgoingEdge)
+      -- | srcVertexId -> (dstVertexId -> srcToDstEdge)
       --
       -- NOTE: A 'HT.HashTable' is used instead of another array to avoid n² memory usage (where n = vertex count)
     , digraphVertexArray :: {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
@@ -185,6 +187,13 @@ fromIdxEdges_ vertexCount' indexMap idxEdges = do
     -- Populate vertex array
     mapM_ (insertIdxEdge vertexArray) idxEdges
     return $ Digraph vertexCount' vertexArray indexMap
+
+toEdges
+    :: (Ord meta, Ord v)
+    => Digraph s v meta
+    -> ST s (Set (IdxEdge v meta))
+toEdges dg = do
+    Arr.getElems (digraphVertexArray dg) >>= fmap (Set.fromList . concat) . traverse valueSet
 
 -- | One or more edges with the same src and dst vertex
 data NonEmptyEdges v meta = NonEmptyEdges
@@ -319,6 +328,20 @@ lookupVertex
     -> ST s (Maybe VertexId)
 lookupVertex (Digraph _ _ indexMap) vertex = do
     HT.lookup indexMap vertex
+
+-- | Look up edge by (src, dst) vertex labels
+lookupEdge
+    :: (Eq v, Hashable v)
+    => Digraph s v meta
+    -> (v, v) -- ^ (src, dst)
+    -> ST s (Maybe (IdxEdge v meta))
+lookupEdge dg (src, dst) = do
+    mSrcIdx <- lookupVertex dg src
+    mDstIdx <- lookupVertex dg dst
+    fmap (join . join) $
+        forM mSrcIdx $ \srcIdx -> do
+            forM mDstIdx $ \dstIdx -> do
+                Arr.readArray (digraphVertexArray dg) srcIdx >>= (`HT.lookup` dstIdx)
 
 insertIdxEdge
     :: Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta))
