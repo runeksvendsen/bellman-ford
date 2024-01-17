@@ -355,11 +355,15 @@ relax pathTo' edge = do
     handleEdge state calcWeight distToFrom = do
         trace' <- R.asks sTrace
         let to = DG.eToIdx edge
+            toInt = DG.vidInt to
         -- Look up current distance to "to" vertex
         distToTo <- distTo' to
         -- Actual relaxation
         R.lift $ trace' $ TraceEvent_Relax edge distToTo
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
+        when (newToWeight < distToTo) $ R.lift $ do
+            -- Update shortest known distance to "to" vertex
+            Arr.writeArray (distTo state) toInt newToWeight
         -- push (l + w, (edge :, v))
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
