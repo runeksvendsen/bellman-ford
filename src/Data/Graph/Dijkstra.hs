@@ -276,6 +276,7 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                             if u == dstVid
                                 then do
                                     accumResult resultRef path' prio
+                                    traceM $ "########################################################################################################################################################## Found path no. " <> show (uCount + 1) <> " with length " <> show prio <> " and edge count " <> show (length path') <> ": " <> show path'
                                     fEarlyTerminate path' prio
                                 else pure False
                         incrementCount count u
@@ -332,6 +333,8 @@ dijkstraTerminate terminate src = do
         let pq = queue state
         mPrioV <- R.lift $ Q.pop pq
         forM_ mPrioV $ \(prio, (v, pathTo')) -> do
+            mV <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
+            traceM $ "##### Popped vertex with prio " <> show prio <> ": " <> show (fromMaybe (error "oops") mV)
             queuePopAction <- terminate v prio pathTo'
             when (queuePopAction == RelaxOutgoingEdges) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph v
@@ -364,6 +367,8 @@ relax pathTo' edge = do
         when (newToWeight < distToTo) $ R.lift $ do
             -- Update shortest known distance to "to" vertex
             Arr.writeArray (distTo state) toInt newToWeight
+            -- TODO: add below to 'TraceEvent'
+            traceM $ "Newest shortest distance " <> show newToWeight <> " from " <> show (DG.eFrom edge)  <> " to " <> show (DG.eTo edge) -- <> " through edge " <> show edge
         -- push (l + w, (edge :, v))
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
