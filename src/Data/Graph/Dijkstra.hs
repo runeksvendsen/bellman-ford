@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BangPatterns #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
@@ -12,9 +11,6 @@ module Data.Graph.Dijkstra
 , dijkstraTerminateDstPrio
 , dijkstraKShortestPaths
 , dijkstraShortestPathsLevels
-  -- * Queries
-, pathTo
-, distTo'
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
@@ -28,11 +24,10 @@ import           Data.Graph.Prelude
 import           Data.Graph.SP.Types
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
-import           Data.Array.ST                      (STArray, STUArray)
+import           Data.Array.ST                      (STUArray)
 import qualified Data.TmpMinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
-import           Data.Ix                            (range)
 import Debug.Trace (traceM)
 import qualified Data.STRef as Ref
 import Unsafe.Coerce (unsafeCoerce)
@@ -103,12 +98,7 @@ data State s v meta = State
 
 -- |
 data MState s v meta = MState
-    { -- | distTo[v] = distance of shortest s->v path
-      distTo    :: STUArray s Int Double
-      -- | edgeTo[v] = last edge on shortest s->v path
-    , edgeTo    :: STArray s Int (Maybe (DG.IdxEdge v meta))
-      -- | TODO
-    , queue     :: Q.TmpMinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
+    { queue     :: Q.TmpMinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -121,22 +111,11 @@ resetState
     :: MState s g e
     -> Dijkstra s v meta ()
 resetState mutState = R.lift $ do
-    fillArray (distTo mutState) (1/0)
-    fillArray (edgeTo mutState) Nothing
     emptyQueue (queue mutState)
   where
     emptyQueue
         :: Q.TmpMinPQ s p v -> ST s ()
     emptyQueue = Q.empty
-
-    fillArray
-        :: Arr.MArray a e (ST s)
-        => a Int e
-        -> e
-        -> (ST s) ()
-    fillArray arr value = do
-        indices <- range <$> Arr.getBounds arr
-        forM_ indices (\idx -> Arr.writeArray arr idx value)
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstra
@@ -324,7 +303,6 @@ dijkstraTerminate terminate src = do
         zero <- R.asks sZero
         trace' <- R.asks sTrace
         R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
-        R.lift $ Arr.writeArray (distTo state) (DG.vidInt srcVertex) zero
         R.lift $ enqueueVertex state (srcVertex, []) zero
         go state graph
         R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
@@ -338,7 +316,8 @@ dijkstraTerminate terminate src = do
             queuePopAction <- terminate v prio pathTo'
             when (queuePopAction == RelaxOutgoingEdges) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph v
-                forM_ edgeList (relax pathTo')
+                -- TODO: assert (length pathTo' == prio)
+                forM_ edgeList (relax pathTo' prio)
             unless (queuePopAction == Terminate) $
                 go state graph
 
@@ -346,96 +325,28 @@ dijkstraTerminate terminate src = do
 -- |
 relax
     :: (Show v, Ord v, Hashable v, Show meta)
-    => MyList (DG.IdxEdge v meta)
-    -> DG.IdxEdge v meta
+    => MyList (DG.IdxEdge v meta) -- ^ path from source to the edge's "from" vertex
+    -> Double -- ^ distance from source to the edge's "from" vertex
+    -> DG.IdxEdge v meta -- ^ edge to relax
     -> Dijkstra s v meta ()
-relax pathTo' edge = do
+relax pathTo' distToFrom edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    distToFrom <- distTo' (DG.eFromIdx edge) -- shortest distance (that we know of so far) to the edge's _from_ vertex
-    handleEdge state calcWeight distToFrom
+    handleEdge state calcWeight
   where
-    handleEdge state calcWeight distToFrom = do
-        trace' <- R.asks sTrace
+    handleEdge state calcWeight = do
         let to = DG.eToIdx edge
-            toInt = DG.vidInt to
-        -- Look up current distance to "to" vertex
-        distToTo <- distTo' to
-        -- Actual relaxation
-        R.lift $ trace' $ TraceEvent_Relax edge distToTo
         let newToWeight = calcWeight distToFrom (DG.eMeta edge)
-        when (newToWeight < distToTo) $ R.lift $ do
-            -- Update shortest known distance to "to" vertex
-            Arr.writeArray (distTo state) toInt newToWeight
-            -- TODO: add below to 'TraceEvent'
-            traceM $ "Newest shortest distance " <> show newToWeight <> " from " <> show (DG.eFrom edge)  <> " to " <> show (DG.eTo edge) -- <> " through edge " <> show edge
         -- push (l + w, (edge :, v))
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
-
-distTo'
-    :: DG.VertexId
-    -> Dijkstra s v meta Double
-distTo' v = do
-    state <- R.asks sMState
-    R.lift $ Arr.readArray (distTo state) (DG.vidInt v)
-
--- | NB: returns 'Nothing' if the target vertex does not exist
-pathTo
-    :: (Show v, Eq v, Hashable v, Show meta)
-    => v                        -- ^ Target vertex
-    -> Dijkstra s v meta (Maybe [DG.IdxEdge v meta])
-pathTo target =
-    foldPathTo (\edge accum -> edge : accum) [] target
-
--- | Fold over the edges in the shortest path to a vertex
-foldPathTo
-    :: forall v meta accum s.
-       (Show v, Eq v, Hashable v, Show meta)
-    => (DG.IdxEdge v meta -> accum -> accum)
-    -- ^ Fold function: first argument is an edge on the shortest path to the target vertex
-    -> accum
-    -- ^ Initial state for fold (@accum@)
-    -> v
-    -- ^ Target vertex
-    -> Dijkstra s v meta (Maybe accum)
-    -- ^ Returns 'Nothing' if either the target vertex doesn't exist or there is no path to it
-foldPathTo folder initAccum target = do
-    graph <- R.asks sGraph
-    targetVertexM <- R.lift (DG.lookupVertex graph target)
-    maybe (return Nothing) findPath targetVertexM
-  where
-    findPath targetVertex = do
-        state <- R.asks sMState
-        pathExists <- hasPathTo targetVertex
-        R.lift $ if pathExists
-            then Just <$> go state initAccum targetVertex
-            else return Nothing
-
-    go :: MState s v meta -> accum -> DG.VertexId -> ST s accum
-    go state accum toVertex = do
-        edgeM <- Arr.readArray (edgeTo state) (DG.vidInt toVertex)
-        case edgeM of
-            Nothing   -> return accum
-            Just edge -> do
-                go state (folder edge accum) (DG.eFromIdx edge)
-
-
-hasPathTo
-    :: DG.VertexId
-    -> Dijkstra s v meta Bool
-hasPathTo target =
-    (< (1/0)) <$> distTo' target
 
 -- | Create initial 'MState'
 initState
     :: DG.Digraph s v meta   -- ^ Graph
     -> ST s (MState s g e)   -- ^ Initialized state
-initState graph = do
-    vertexCount <- fromIntegral <$> DG.vertexCount graph
+initState _ =
     MState
-        <$> Arr.newArray (0, vertexCount) (1/0)      -- distTo
-        <*> Arr.newArray (0, vertexCount) Nothing    -- edgeTo
-        <*> Q.new                                    -- queue
+        <$> Q.new                                    -- queue
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
