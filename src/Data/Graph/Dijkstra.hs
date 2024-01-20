@@ -304,11 +304,10 @@ dijkstraTerminate terminate src = do
         trace' <- R.asks sTrace
         R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
         R.lift $ enqueueVertex state (srcVertex, []) zero
-        go state graph
+        go (queue state) graph
         R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
 
-    go state graph = do
-        let pq = queue state
+    go pq graph = do
         mPrioV <- R.lift $ Q.pop pq
         forM_ mPrioV $ \(prio, (v, pathTo')) -> do
             mV <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
@@ -319,7 +318,7 @@ dijkstraTerminate terminate src = do
                 -- TODO: assert (length pathTo' == prio)
                 forM_ edgeList (relax pathTo' prio)
             unless (queuePopAction == Terminate) $
-                go state graph
+                go pq graph
 
 {-# SCC relax #-}
 -- |
@@ -336,7 +335,7 @@ relax pathTo' distToFrom edge = do
   where
     handleEdge state calcWeight = do
         let to = DG.eToIdx edge
-        let newToWeight = calcWeight distToFrom (DG.eMeta edge)
+            newToWeight = calcWeight distToFrom (DG.eMeta edge)
         -- push (l + w, (edge :, v))
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
