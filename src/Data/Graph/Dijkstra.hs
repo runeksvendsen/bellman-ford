@@ -281,7 +281,8 @@ data QueuePopAction
 
 -- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
-    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    :: forall v meta s.
+       (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> Dijkstra s v meta QueuePopAction)
     -- ^ Terminate when this function returns 'True'.
     -- ^ Args:
@@ -301,24 +302,28 @@ dijkstraTerminate terminate src = do
     initAndGo state graph srcVertex = do
         resetState state
         zero <- R.asks sZero
+        calcWeight <- R.asks sWeightCombine
         trace' <- R.asks sTrace
         R.lift $ trace' $ TraceEvent_Init (src, srcVertex) zero
         R.lift $ enqueueVertex state (srcVertex, []) zero
-        go (queue state) graph
+        let calcPathLength :: MyList (DG.IdxEdge v meta) -> Double
+            calcPathLength = foldr (flip calcWeight . DG.eMeta) zero
+        go calcPathLength (queue state) graph
         R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
 
-    go pq graph = do
+    go calcPathLength pq graph = do
         mPrioV <- R.lift $ Q.pop pq
         forM_ mPrioV $ \(prio, (v, pathTo')) -> do
+            unless (calcPathLength pathTo' == prio) $
+                error $ "dijkstraTerminate: prio /= length path. Prio: " <> show prio <> " path: " <> show pathTo'
             mV <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
             traceM $ "##### Popped vertex with prio " <> show prio <> ": " <> show (fromMaybe (error "oops") mV)
             queuePopAction <- terminate v prio pathTo'
             when (queuePopAction == RelaxOutgoingEdges) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph v
-                -- TODO: assert (length pathTo' == prio)
                 forM_ edgeList (relax pathTo' prio)
             unless (queuePopAction == Terminate) $
-                go pq graph
+                go calcPathLength pq graph
 
 {-# SCC relax #-}
 -- |
