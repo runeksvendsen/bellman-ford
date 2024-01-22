@@ -342,6 +342,7 @@ relax pathTo' distToFrom edge = do
         let to = DG.eToIdx edge
             newToWeight = calcWeight distToFrom (DG.eMeta edge)
         -- push (l + w, (edge :, v))
+        traceM $ "##### Queued vertex with prio " <> show newToWeight <> " through edge: " <> show (DG.eMeta edge)
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
 -- | Create initial 'MState'
