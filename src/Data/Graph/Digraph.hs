@@ -29,6 +29,7 @@ module Data.Graph.Digraph
 , veticesAndLabels
 , outgoingEdges
 , outgoingEdges'
+, mapEdgeMeta
 , lookupVertex
 , lookupVertexReverseSlowTMP
 , lookupEdge
@@ -291,6 +292,25 @@ emptyClone (Digraph vc _ indexMap) = do
     newVertexArray <- Arr.newListArray (VertexId 0, VertexId (vc - 1)) emptyMaps
     -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
     return $ Digraph vc newVertexArray indexMap
+
+-- | Map the metadata of an edge
+mapEdgeMeta
+    :: ( Hashable v
+       , Ord meta
+       , Ord v
+       )
+    => (meta -> ST s meta')
+    -> Digraph s v meta
+    -> ST s (Digraph s v meta')
+mapEdgeMeta f dg = do
+    -- TODO: optimize
+    edges <- toEdges dg
+    edges' <- mapM mapFun (Set.toList edges)
+    fromEdges edges'
+  where
+    mapFun idxEdge = do
+        meta' <- f (eMeta idxEdge)
+        pure $ idxEdge{ eMeta = meta' }
 
 createIdxEdge
     :: E.DirectedEdge edge v meta
