@@ -345,8 +345,6 @@ relax pathTo' distToFrom edge = do
         let to = DG.eToIdx edge
             newToWeight = calcWeight distToFrom (DG.eMeta edge)
         -- push (l + w, (edge :, v))
-        let dst = DG.eTo edge
-        traceM $ "##### Queued vertex with prio " <> show newToWeight <> " to " <> show dst
         _ <- R.lift $ trace' $ TraceEvent_Push edge newToWeight pathTo'
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
