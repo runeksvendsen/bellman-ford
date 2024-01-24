@@ -231,6 +231,7 @@ dijkstraShortestPaths
     -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
 dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
     graph <- R.asks sGraph
+    trace' <- R.asks sTrace
     mDstVid <- R.lift $ DG.lookupVertex graph dst
     resultRef <- R.lift $ Ref.newSTRef []
     -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085.
@@ -239,10 +240,10 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
     forM mDstVid $ \dstVid -> do
-        dijkstraTerminate (fTerminate count resultRef dstVid) src
+        dijkstraTerminate (fTerminate trace' count resultRef dstVid) src
         R.lift $ Ref.readSTRef resultRef
   where
-    fTerminate count resultRef dstVid u prio path = R.lift $ do
+    fTerminate trace' count resultRef dstVid u prio path = R.lift $ do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
@@ -255,7 +256,7 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                             if u == dstVid
                                 then do
                                     accumResult resultRef path' prio
-                                    traceM $ "########################################################################################################################################################## Found path no. " <> show (uCount + 1) <> " with length " <> show prio <> " and edge count " <> show (length path') <> ": " <> show path'
+                                    _ <- trace' $ TraceEvent_FoundPath (uCount + 1) prio path
                                     fEarlyTerminate path' prio
                                 else pure False
                         incrementCount count u
@@ -308,22 +309,23 @@ dijkstraTerminate terminate src = do
         R.lift $ enqueueVertex state (srcVertex, []) zero
         let calcPathLength :: MyList (DG.IdxEdge v meta) -> Double
             calcPathLength = foldr (flip calcWeight . DG.eMeta) zero
-        go calcPathLength (queue state) graph
+        go calcPathLength (queue state) graph trace'
         R.lift $ trace' $ TraceEvent_Done (src, srcVertex)
 
-    go calcPathLength pq graph = do
+    go calcPathLength pq graph trace' = do
         mPrioV <- R.lift $ Q.pop pq
         forM_ mPrioV $ \(prio, (v, pathTo')) -> do
             unless (calcPathLength pathTo' == prio) $
                 error $ "dijkstraTerminate: prio /= length path. Prio: " <> show prio <> " path: " <> show pathTo'
             mV <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
-            traceM $ "##### Popped vertex with prio " <> show prio <> ": " <> show (fromMaybe (error "oops") mV)
+            let v' = fromMaybe (error "oops") mV
+            _ <- R.lift $ trace' $ TraceEvent_Pop v' prio pathTo'
             queuePopAction <- terminate v prio pathTo'
             when (queuePopAction == RelaxOutgoingEdges) $ do
                 edgeList <- R.lift $ DG.outgoingEdges graph v
                 forM_ edgeList (relax pathTo' prio)
             unless (queuePopAction == Terminate) $
-                go calcPathLength pq graph
+                go calcPathLength pq graph trace'
 
 {-# SCC relax #-}
 -- |
@@ -336,13 +338,16 @@ relax
 relax pathTo' distToFrom edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
-    handleEdge state calcWeight
+    trace' <- R.asks sTrace
+    handleEdge state calcWeight trace'
   where
-    handleEdge state calcWeight = do
+    handleEdge state calcWeight trace' = do
         let to = DG.eToIdx edge
             newToWeight = calcWeight distToFrom (DG.eMeta edge)
         -- push (l + w, (edge :, v))
-        traceM $ "##### Queued vertex with prio " <> show newToWeight <> " through edge: " <> show (DG.eMeta edge)
+        let dst = DG.eTo edge
+        traceM $ "##### Queued vertex with prio " <> show newToWeight <> " to " <> show dst
+        _ <- R.lift $ trace' $ TraceEvent_Push edge newToWeight pathTo'
         R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
 
 -- | Create initial 'MState'

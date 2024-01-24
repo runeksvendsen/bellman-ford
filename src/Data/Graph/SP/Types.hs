@@ -30,6 +30,30 @@ data TraceEvent v meta weight
       -- ^ 'bellmanFord' has terminated
         !(v, DG.VertexId)
         -- ^ /source/ vertex
+    | TraceEvent_Push
+      -- ^ An vertex is pushed onto the queue
+        !(DG.IdxEdge v meta)
+        -- ^ The edge whose /destination/-vertex is pushed onto the queue
+        !weight
+        -- ^ The priority of the vertex
+        ![DG.IdxEdge v meta]
+        -- ^ The path that led to the edge's /source/-vertex
+    | TraceEvent_Pop
+      -- ^ An vertex is pushed onto the queue
+        !v
+        -- ^ The edge whose /destination/-vertex is pushed onto the queue
+        !weight
+        -- ^ The priority of the vertex
+        ![DG.IdxEdge v meta]
+        -- ^ The path that led to the edge's /source/-vertex
+    | TraceEvent_FoundPath
+      -- ^ Found a shortest path
+        !Int
+        -- ^ Path number (first found path is number 1)
+        !weight
+        -- ^ Path length
+        ![DG.IdxEdge v meta]
+        -- ^ The path
 
 renderTraceEvent
     :: (Show meta, Show v, Show weight)
@@ -54,4 +78,28 @@ renderTraceEvent = \case
     TraceEvent_Done srcVertex -> unwords
         [ "Finished Bellman-Ford for source vertex"
         , showIndexedVertex srcVertex
+        ]
+    TraceEvent_Push edge weight pathTo -> unwords
+        [ "Queued vertex with prio"
+        , show weight
+        , "to"
+        , show (DG.eTo edge) <> "."
+        , "Path to vertex:"
+        , show pathTo
+        ]
+    TraceEvent_Pop v weight pathTo -> unwords
+        [ "Popped vertex with prio"
+        , show weight <> ":"
+        , show v <> "."
+        , "Path to vertex:"
+        , show pathTo
+        ]
+    TraceEvent_FoundPath number weight path -> unwords
+        [ "Found path no."
+        , show number
+        , "with length"
+        , show weight
+        , "and edge count"
+        , show (length path) <> ":"
+        , show path
         ]
