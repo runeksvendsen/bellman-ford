@@ -14,7 +14,7 @@ import Control.Monad (forM_)
 import Data.Functor ((<&>))
 
 data TmpMinPQ s p v = TmpMinPQ
-    { tmpMinPQ_size :: !(Ref.STRef s Int)
+    { tmpMinPQ_indexCounter :: !(Ref.STRef s Int)
     , tmpMinPQ_queue :: !(Ref.STRef s (Q.IntPSQ p v))
     }
 
@@ -27,7 +27,7 @@ empty
     :: TmpMinPQ s p v
     -> ST s ()
 empty pq = do
-    Ref.writeSTRef (tmpMinPQ_size pq) 0
+    Ref.writeSTRef (tmpMinPQ_indexCounter pq) 0
     Ref.writeSTRef (tmpMinPQ_queue pq) Q.empty
 
 push
@@ -37,9 +37,9 @@ push
     -> v
     -> ST s ()
 push pq p v = do
-    size <- Ref.readSTRef $ tmpMinPQ_size pq
+    size <- Ref.readSTRef $ tmpMinPQ_indexCounter pq
     Ref.modifySTRef' (tmpMinPQ_queue pq) $ Q.insert size p v
-    Ref.modifySTRef' (tmpMinPQ_size pq) (+1)
+    Ref.modifySTRef' (tmpMinPQ_indexCounter pq) (+1)
 
 pop
     :: Ord p
@@ -49,5 +49,4 @@ pop pq = do
     mMin <- Q.findMin <$> Ref.readSTRef (tmpMinPQ_queue pq)
     forM_ mMin $ \(k, _, _) -> do
         Ref.modifySTRef' (tmpMinPQ_queue pq) $ Q.delete k
-        Ref.modifySTRef' (tmpMinPQ_size pq) (subtract 1)
     pure $ mMin <&> \(_, p, v) -> (p, v)
