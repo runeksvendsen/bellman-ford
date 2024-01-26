@@ -255,6 +255,9 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                         earlyTerminate <-
                             if u == dstVid
                                 then do
+                                    -- The first edge of the path must start at 'src'
+                                    unless (maybe True (\firstEdge -> DG.eFrom firstEdge == src) (listToMaybe path')) $
+                                        error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
                                     accumResult resultRef path' prio
                                     _ <- trace' $ TraceEvent_FoundPath (uCount + 1) prio path
                                     fEarlyTerminate path' prio
