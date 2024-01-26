@@ -31,7 +31,7 @@ module Data.Graph.Digraph
 , outgoingEdges'
 , mapEdgeMeta
 , lookupVertex
-, lookupVertexReverseSlowTMP
+, lookupVertexId
 , lookupEdge
 , freeze
 , thaw
@@ -59,7 +59,7 @@ module Data.Graph.Digraph
 where
 
 import Data.Graph.Prelude
-import Protolude (NFData(rnf), Generic, Set)
+import Protolude (NFData(rnf), Generic, Set, swap)
 import qualified Data.Graph.Edge as E
 import qualified Data.Graph.Util as U
 
@@ -139,27 +139,35 @@ data Digraph s v meta = Digraph
     , digraphVertexArray :: {-# UNPACK #-} !(Arr.STArray s VertexId (HT.HashTable s VertexId (IdxEdge v meta)))
       -- | v -> vertexId
     , digraphVertexIndex :: {-# UNPACK #-} !(HT.HashTable s v VertexId)
+      -- | vertexId -> v
+    , digraphVertexIdIndex :: {-# UNPACK #-} !(Arr.STArray s VertexId v)
     }
 
 fromEdges
-    :: (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
+    :: forall v edge meta s.
+       (Eq v, Ord v, Hashable v, E.DirectedEdge edge v meta)
     => [edge]
     -> ST s (Digraph s v meta)
 fromEdges edges = do
     -- Create vertex->index map
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
-    forM_ (zip uniqueVertices [0..]) $ \(v, idx) -> HT.insert indexMap v (VertexId idx)
+    forM_ indexMapAssocs (uncurry $ HT.insert indexMap)
     -- Populate vertex array
     idxEdges <- mapM (createIdxEdge indexMap) edges
-    fromIdxEdges_ vertexCount' indexMap idxEdges
+    indexMap' <- Arr.thaw indexMapI
+    fromIdxEdges_ vertexCount' indexMap indexMap' idxEdges
   where
     vertexCount' = length uniqueVertices
     uniqueVertices = U.nubOrd $ map E.fromNode edges ++ map E.toNode edges
+    indexMapAssocs = zip uniqueVertices (map VertexId [0..])
+    indexMapI :: IArr.Array VertexId v
+    indexMapI = IArr.array (VertexId 0, VertexId $ vertexCount' - 1) (map swap indexMapAssocs)
 
 -- | An optimization of 'fromEdges' for 'IdxEdge' edges
 fromIdxEdges
-    :: (Hashable v, Ord v)
+    :: forall s v meta.
+       (Hashable v, Ord v)
     => [IdxEdge v meta]
     -> ST s (Digraph s v meta)
 fromIdxEdges idxEdges = do
@@ -167,7 +175,8 @@ fromIdxEdges idxEdges = do
     indexMap <- HT.newSized vertexCount' :: ST s (HT.HashTable s v VertexId)
     -- Initialize vertex-index map
     forM_ uniqueVertices (uncurry $ HT.insert indexMap)
-    fromIdxEdges_ vertexCount' indexMap idxEdges
+    indexMap' <- Arr.thaw indexMapI
+    fromIdxEdges_ vertexCount' indexMap indexMap' idxEdges
   where
     vertexCount'
         | null idxEdges = 0
@@ -175,19 +184,22 @@ fromIdxEdges idxEdges = do
     uniqueVertices = U.nubOrd $
         map (\e -> (eFrom e, eFromIdx e)) idxEdges ++
         map (\e -> (eTo e, eToIdx e)) idxEdges
+    indexMapI :: IArr.Array VertexId v
+    indexMapI = IArr.array (VertexId 0, VertexId $ vertexCount' - 1) (map swap uniqueVertices)
 
 fromIdxEdges_
     :: Int
-    -> HT.HashTable s v VertexId
+    -> HT.HashTable s v VertexId -- [(v, VertexId)]
+    -> Arr.STArray s VertexId v
     -> [IdxEdge v meta]
     -> ST s (Digraph s v meta)
-fromIdxEdges_ vertexCount' indexMap idxEdges = do
+fromIdxEdges_ vertexCount' indexMap indexMap' idxEdges = do
     -- Initialize vertex array
     outEdgeMapList <- replicateM vertexCount' HT.new
     vertexArray <- Arr.newListArray (VertexId 0, VertexId (vertexCount' - 1)) outEdgeMapList
     -- Populate vertex array
     mapM_ (insertIdxEdge vertexArray) idxEdges
-    return $ Digraph vertexCount' vertexArray indexMap
+    return $ Digraph vertexCount' vertexArray indexMap indexMap'
 
 toEdges
     :: (Ord meta, Ord v)
@@ -237,7 +249,7 @@ flipGraphEdges
 flipGraphEdges g = do
     vertexList <- vertices g
     edges <- forM vertexList (outgoingEdges g)
-    fromIdxEdges_ (digraphVertexCount g) (digraphVertexIndex g) (map flipEdge $ concat edges)
+    fromIdxEdges_ (digraphVertexCount g) (digraphVertexIndex g) (digraphVertexIdIndex g) (map flipEdge $ concat edges)
 
 -- | An immutable form of 'Digraph'
 data IDigraph v meta =
@@ -261,22 +273,27 @@ freeze
     :: Ord v
     => Digraph s v meta
     -> ST s (IDigraph v meta)
-freeze (Digraph vc vertexArray indexMap) = do
+freeze (Digraph vc vertexArray indexMap _) = do
     vertexArray' <- mapM hashTableToMap =<< Arr.freeze vertexArray
     indexMap' <- hashTableToMap indexMap
     return $ IDigraph vc vertexArray' indexMap'
 
 -- | Convert an immutable graph into an mutable graph.
 thaw
-    :: (Eq v, Hashable v)
+    :: forall s v meta.
+       (Eq v, Hashable v)
     => IDigraph v meta
     -> ST s (Digraph s v meta)
 thaw (IDigraph vc frozenArray indexKv) = do
     htArray <- mapM fromMap frozenArray
     vertexArray <- Arr.thaw htArray
     indexMap <- fromMap indexKv
-    return $ Digraph vc vertexArray indexMap
+    indexMap' <- Arr.thaw indexMapI
+    return $ Digraph vc vertexArray indexMap indexMap'
   where
+    indexMapI :: IArr.Array VertexId v
+    indexMapI = IArr.array (VertexId 0, VertexId $ vc - 1) (map swap $ Map.assocs indexKv)
+
     fromMap map' = do
         ht <- HT.newSized (Map.size map')
         foldM (\ht' (k,v) -> HT.insert ht' k v >> return ht') ht (Map.assocs map')
@@ -287,11 +304,11 @@ emptyClone
     :: forall s v meta.
        Digraph s v meta
     -> ST s (Digraph s v meta)
-emptyClone (Digraph vc _ indexMap) = do
+emptyClone (Digraph vc _ indexMap indexMap') = do
     emptyMaps <- sequence $ replicate vc HT.new
     newVertexArray <- Arr.newListArray (VertexId 0, VertexId (vc - 1)) emptyMaps
     -- Keeping the same 'indexMap' is safe since it is not modified after graph creation
-    return $ Digraph vc newVertexArray indexMap
+    return $ Digraph vc newVertexArray indexMap indexMap'
 
 -- | Map the metadata of an edge
 mapEdgeMeta
@@ -327,18 +344,21 @@ createIdxEdge indexMap edge = do
     to = E.toNode edge
     lookup' = fmap (fromMaybe (error "BUG: lookup indexMap")) . HT.lookup indexMap
 
-lookupVertexReverseSlowTMP
-    :: Digraph s v meta
+-- | Look up vertex by 'VertexId'
+lookupVertexId
+    :: (Eq v, Hashable v)
+    => Digraph s v meta
     -> VertexId
     -> ST s (Maybe v)
-lookupVertexReverseSlowTMP dg vid = do
-    let ht = digraphVertexIndex dg
-    size <- HT.size ht
-    kvList <- keyValueSet ht
-    map' <- HT.newSized size
-    forM_ kvList $ \(k, v) ->
-        HT.insert map' v k
-    HT.lookup map' vid
+lookupVertexId dg vertex =
+    digraphVertexIdIndex dg !? vertex
+  where
+    (!?) :: (Arr.MArray a e m, Ix i) => a i e -> i -> m (Maybe e)
+    (!?) arr i = do
+        b <- Arr.getBounds arr
+        if inRange b i
+            then Just <$> Arr.readArray arr i
+            else pure Nothing
 
 -- | Look up vertex by label
 lookupVertex
@@ -346,7 +366,7 @@ lookupVertex
     => Digraph s v meta
     -> v
     -> ST s (Maybe VertexId)
-lookupVertex (Digraph _ _ indexMap) vertex = do
+lookupVertex (Digraph _ _ indexMap _) vertex = do
     HT.lookup indexMap vertex
 
 -- | Look up edge by (src, dst) vertex labels
@@ -376,7 +396,7 @@ updateEdge
     :: Digraph s v meta
     -> IdxEdge v meta
     -> ST s ()
-updateEdge (Digraph _ vertexArray _) = insertIdxEdge vertexArray
+updateEdge (Digraph _ vertexArray _ _) = insertIdxEdge vertexArray
 
 -- Insert/overwrite an existing edge in the graph
 insertEdge
@@ -390,7 +410,7 @@ removeEdge
     :: Digraph s v meta
     -> IdxEdge v a
     -> ST s ()
-removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
+removeEdge (Digraph _ vertexArray _ _) IdxEdge{..} = do
     outEdgeMap <- Arr.readArray vertexArray _eFromIdx
     HT.delete outEdgeMap _eToIdx
 
@@ -398,13 +418,13 @@ removeEdge (Digraph _ vertexArray _) IdxEdge{..} = do
 vertexCount
     :: Digraph s v meta
     -> ST s Word
-vertexCount (Digraph vc _ _) = return $ fromIntegral vc
+vertexCount (Digraph vc _ _ _) = return $ fromIntegral vc
 
 -- | Count of the number of edges in the graph
 edgeCount
     :: Digraph s v meta
     -> ST s Word
-edgeCount dg@(Digraph _ vertexArray _) = do
+edgeCount dg@(Digraph _ vertexArray _ _) = do
     vertexIdList <- vertices dg
     outEdgeMapList <- mapM (Arr.readArray vertexArray) vertexIdList
     countList <- mapM HT.size outEdgeMapList
@@ -414,7 +434,7 @@ edgeCount dg@(Digraph _ vertexArray _) = do
 vertices
     :: Digraph s v meta
     -> ST s [VertexId]
-vertices (Digraph vc _ _) =
+vertices (Digraph vc _ _ _) =
     return vertexIdList
   where
     vertexIdList = map VertexId [0..vc-1]
@@ -427,14 +447,14 @@ vertices (Digraph vc _ _) =
 vertexLabels
     :: Digraph s v meta
     -> ST s [v]
-vertexLabels (Digraph _ _ indexMap) =
+vertexLabels (Digraph _ _ indexMap _) =
     keySet indexMap
 
 -- | All the vertices in the graph including vertex labels
 veticesAndLabels
     :: Digraph s v meta
     -> ST s [(v, VertexId)]
-veticesAndLabels (Digraph _ _ indexMap) =
+veticesAndLabels (Digraph _ _ indexMap _) =
     keyValueSet indexMap
 
 -- | All edges going out of the given vertex
@@ -442,7 +462,7 @@ outgoingEdges
     :: Digraph s v meta
     -> VertexId
     -> ST s [IdxEdge v meta]
-outgoingEdges (Digraph _ vertexArray _) vid = do
+outgoingEdges (Digraph _ vertexArray _ _) vid = do
     outEdgeMap <- Arr.readArray vertexArray vid
     valueSet outEdgeMap
 

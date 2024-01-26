@@ -320,7 +320,7 @@ dijkstraTerminate terminate src = do
         forM_ mPrioV $ \(prio, (v, pathTo')) -> do
             unless (calcPathLength pathTo' == prio) $
                 error $ "dijkstraTerminate: prio /= length path. Prio: " <> show prio <> " path: " <> show pathTo'
-            mV <- R.lift $ DG.lookupVertexReverseSlowTMP graph v
+            mV <- R.lift $ DG.lookupVertexId graph v
             let v' = fromMaybe (error "oops") mV
             _ <- R.lift $ trace' $ TraceEvent_Pop v' prio pathTo'
             queuePopAction <- terminate v prio pathTo'
