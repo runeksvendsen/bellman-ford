@@ -243,7 +243,7 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
         dijkstraTerminate (fTerminate trace' count resultRef dstVid) src
         R.lift $ Ref.readSTRef resultRef
   where
-    fTerminate trace' count resultRef dstVid u prio path = R.lift $ do
+    fTerminate trace' count resultRef dstVid u prio pathToU = R.lift $ do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
@@ -251,7 +251,7 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                 if uCount >= k
                     then pure SkipRelax
                     else do
-                        let path' = reverse path
+                        let path' = reverse pathToU
                         earlyTerminate <-
                             if u == dstVid
                                 then do
