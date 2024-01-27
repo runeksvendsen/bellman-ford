@@ -292,8 +292,9 @@ dijkstraTerminate
     -- ^ Args:
     --     (1) dequeued vertex (@u@)
     --     (2) priority of dequeued vertex
-    --     (3) list of edges going from @u@ to @src@.
+    --     (3) reversed list of edges going from @src@ to @u@.
     --         the first edge in the list points /to/ @u@ while the last edge in the list points /from/ @src@.
+    --         apply 'reverse' to this list to get a list of edges going from @src@ to @u@.
     -> v
     -- ^ Source vertex @src@
     -> Dijkstra s v meta ()
