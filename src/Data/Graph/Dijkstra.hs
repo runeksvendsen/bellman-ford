@@ -223,7 +223,7 @@ dijkstraShortestPaths
        -- ^ Return 'True' to terminate before /k/ paths have been found.
        --   Arguments:
        --     (1) A path from /src/ to /dst/
-       --     (2) The distance of the path
+       --     (2) The distance of the path (cumulative weight)
     -> Int
        -- ^ Maximum number of shortest paths to return (/k/)
     -> (v, v)
