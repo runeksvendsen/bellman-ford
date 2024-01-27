@@ -185,45 +185,71 @@ dijkstraKShortestPaths
        -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
 dijkstraKShortestPaths =
-    dijkstraShortestPaths (const $ const $ pure False)
+    dijkstraShortestPaths (const $ const $ const $ pure False)
 
--- | TODO
+-- | Find /n/ sets of shortests paths, where each set contains shortests paths of the same length.
 dijkstraShortestPathsLevels
-    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => Int -- ^ maximum number of shortest paths to find
-    -> Int -- ^ maximum number of "levels" to find
+    :: forall s v meta.
+       (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => Int -- ^ maximum number of shortest paths to find.
+           --   used to put an upper bound on the running time.
+           --   terminates after this number of shortests path have been found in total.
+    -> Int -- ^ maximum number of "levels" to find (number of sets).
+           --   level 0: find only the first shortest path
+           --   level 1: find all the shortest paths with the same length as the first shortest path
+           --   level 2: find all the shortest paths with a length up to that of the second shortest path
+           --   level 3: find all the shortest paths with a length up to that of the third shortest path
+           --   ...
+           --   level n: find all the shortest paths with a length up to that of the /n/ shortest path
     -> (v, v)
     -> Dijkstra s v meta (Maybe [([DG.IdxEdge v meta], Double)])
-dijkstraShortestPathsLevels k numLevels srcDst = do
-    firstPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
-    lastPrioRef <- R.lift $ ST.newSTRef (1/0 :: Double)
+dijkstraShortestPathsLevels k numLevels srcDst@(_, dst) = withDstVid $ \dstVid -> do
+    shortestPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the first shortest path
+    lastFoundPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the most recent shortest path
     levelCountRef <- R.lift $ ST.newSTRef (0 :: Int)
-    let f path prio = do
-            firstPrio <- ST.readSTRef firstPrioRef
-            if firstPrio == (1/0)
-                then do
-                    ST.writeSTRef firstPrioRef prio
-                    pure False
-                else do
-                    fLevels lastPrioRef levelCountRef prio
-    dijkstraShortestPaths f k srcDst
-  where
-    fLevels lastPrioRef levelCountRef prio = do
-        lastPrio <- ST.readSTRef lastPrioRef
-        when (lastPrio /= 1/0) $ do
-            when (prio /= lastPrio) $
+    let fEarlyTerminate u prio _ = R.lift $ do
+            done <- areWeDone prio
+            when (u == dstVid) $
+                foundPathToDst prio
+            pure done
+
+        foundPathToDst prio = do
+            shortestPathLength <- ST.readSTRef shortestPathLengthRef
+            when (shortestPathLength == 1/0) $
+                ST.writeSTRef shortestPathLengthRef prio
+            checkUpdateLevelCount prio
+            ST.writeSTRef lastFoundPathLengthRef prio
+
+        -- we are done when we have the requested number of levels and
+        -- a vertex is popped whose priority is higher than the priority
+        -- of the most recently found shortest path
+        areWeDone prio = do
+            lastFoundPathLength <- ST.readSTRef lastFoundPathLengthRef
+            levelCount <- ST.readSTRef levelCountRef
+            pure $ prio /= lastFoundPathLength
+                && levelCount >= numLevels
+
+        checkUpdateLevelCount prio = do
+            lastFoundPathLength <- ST.readSTRef lastFoundPathLengthRef
+            when (prio /= lastFoundPathLength) $
                 ST.modifySTRef' levelCountRef (+1)
-        ST.writeSTRef lastPrioRef prio
-        (>= numLevels) <$> ST.readSTRef levelCountRef
+
+    dijkstraShortestPaths fEarlyTerminate k srcDst
+  where
+    withDstVid
+        :: (DG.VertexId -> Dijkstra s v meta (Maybe a))
+        -> Dijkstra s v meta (Maybe a)
+    withDstVid f = do
+        graph <- R.asks sGraph
+        mDstVid <- R.lift $ DG.lookupVertex graph dst
+        join <$> forM mDstVid f
 
 --- | WIP: 'k' shortest paths with pre-termination
 dijkstraShortestPaths
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => ([DG.IdxEdge v meta] -> Double -> ST s Bool)
+    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> Dijkstra s v meta Bool)
        -- ^ Return 'True' to terminate before /k/ paths have been found.
-       --   Arguments:
-       --     (1) A path from /src/ to /dst/
-       --     (2) The distance of the path (cumulative weight)
+       --   The arguments to this function are the same as those of the function passed to 'dijkstraTerminate'
     -> Int
        -- ^ Maximum number of shortest paths to return (/k/)
     -> (v, v)
@@ -240,9 +266,15 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
     forM mDstVid $ \dstVid -> do
-        dijkstraTerminate (fTerminate trace' count resultRef dstVid) src
+        dijkstraTerminate (fTerminate' trace' count resultRef dstVid) src
         R.lift $ Ref.readSTRef resultRef
   where
+    fTerminate' trace' count resultRef dstVid u prio pathToU = do
+        earlyTerminate <- fEarlyTerminate u prio pathToU
+        if earlyTerminate
+            then pure Terminate
+            else fTerminate trace' count resultRef dstVid u prio pathToU
+
     fTerminate trace' count resultRef dstVid u prio pathToU = R.lift $ do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
@@ -252,20 +284,14 @@ dijkstraShortestPaths fEarlyTerminate k (src, dst) = do
                     then pure SkipRelax
                     else do
                         let path' = reverse pathToU
-                        earlyTerminate <-
-                            if u == dstVid
-                                then do
-                                    -- The first edge of the path must start at 'src'
-                                    unless (maybe True (\firstEdge -> DG.eFrom firstEdge == src) (listToMaybe path')) $
-                                        error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
-                                    accumResult resultRef path' prio
-                                    _ <- trace' $ TraceEvent_FoundPath (uCount + 1) prio path'
-                                    fEarlyTerminate path' prio
-                                else pure False
+                        when (u == dstVid) $ do
+                            -- The first edge of the path must start at 'src'
+                            unless (maybe True (\firstEdge -> DG.eFrom firstEdge == src) (listToMaybe path')) $
+                                error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
+                            accumResult resultRef path' prio
+                            void $ trace' $ TraceEvent_FoundPath (uCount + 1) prio path'
                         incrementCount count u
-                        pure $ if earlyTerminate
-                            then Terminate
-                            else RelaxOutgoingEdges
+                        pure RelaxOutgoingEdges
             else pure Terminate
 
     accumResult resultRef path prio = do
