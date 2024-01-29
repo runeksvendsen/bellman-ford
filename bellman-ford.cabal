@@ -107,6 +107,6 @@ test-suite bellman-ford-test
     , transformers
     , text
     , bytestring
-    , dotparse
+    , dotparse == 0.0.3
     , flatparse
   default-language: Haskell2010

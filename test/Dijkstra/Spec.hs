@@ -23,6 +23,8 @@ import qualified Test.QuickCheck as QC
 import qualified Util.QuickSmall as QS
 import Data.Bifunctor (bimap)
 
+pathTo :: String -> Dijkstra.Dijkstra s String Double (Maybe [Lib.IdxEdge String Double])
+pathTo = error "TODO"
 
 spec :: Tasty.TestTree
 spec = Tasty.testGroup "Dijkstra" . (: []) $
@@ -30,11 +32,11 @@ spec = Tasty.testGroup "Dijkstra" . (: []) $
         [ Tasty.testGroup "all paths from source" $
             mkTests
                 Dijkstra.dijkstra
-                (Dijkstra.pathTo . snd)
+                (pathTo . snd)
         , Tasty.testGroup "only source to target" $
             mkTests
                 (const $ pure ())
-                (\srcDst -> Dijkstra.dijkstraSourceSink srcDst >> Dijkstra.pathTo (snd srcDst))
+                (\srcDst -> Dijkstra.dijkstraSourceSink srcDst >> pathTo (snd srcDst))
         ]
     where
         mkTests
