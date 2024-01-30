@@ -1,6 +1,13 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE BangPatterns #-}
--- | Transaction of Robert Sedgewick and Kevin Wayne's @IndexMinPQ.java@ to Haskell.
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
+-- | Translation of Robert Sedgewick and Kevin Wayne's @IndexMinPQ.java@ to Haskell
+--   with the addition of automatic growing.
+--
+--   Growing happens on an `insert` of an index that would otherwise fail with an
+--   /index >= capacity/-error. The capacity is adjusted so the insert of the
+--   index suceeds, but the new capacity is always at least doubled.
 --
 -- https://algs4.cs.princeton.edu/44sp/IndexMinPQ.java.html
 module Data.IndexMinPQ
@@ -31,21 +38,61 @@ import Data.List (intercalate)
 --
 -- See https://algs4.cs.princeton.edu/44sp/IndexMinPQ.java.html.
 data IndexMinPQ s key = IndexMinPQ
-  { state_maxN :: {-# UNPACK #-} Int
+  { indexMinPQ_maxN :: MV.MutVar s Int
     -- ^ maximum number of elements on PQ
-  , state_n :: MV.MutVar s Int
+  , indexMinPQ_n :: MV.MutVar s Int
     -- ^ number of elements on PQ
-  , state_pq :: UVec.STVector s Int
-    -- ^ binary heap using 1-based indexing
-  , state_qp :: UVec.STVector s Int
-    -- ^ inverse of pq - qp[pq[i]] = pq[qp[i]] = i
-  , state_keys :: BVec.STVector s key
-    -- ^ keys[i] = priority of i
-    --
-    --   NOTE: must be non-strict (since we store /bottom/ for non-existing keys).
+  , indexMinPQ_arrays :: MV.MutVar s (IndexMinPQArrays s key)
+    -- ^ all the arrays
   , indexMinPQ_trace :: Bool
     -- ^ print debug/trace info
   }
+
+data IndexMinPQArrays s key = IndexMinPQArrays
+  { indexMinPQArrays_pq :: UVec.STVector s Int
+    -- ^ binary heap using 1-based indexing
+  , indexMinPQArrays_qp :: UVec.STVector s Int
+    -- ^ inverse of pq - qp[pq[i]] = pq[qp[i]] = i
+  , indexMinPQArrays_keys :: BVec.STVector s key
+    -- ^ keys[i] = priority of i
+    --
+    --   NOTE: must be non-strict (since we store /bottom/ for non-existing keys).
+  }
+
+-- | Getter for @pq@ array
+array_pq :: IndexMinPQ s key -> ST s (UVec.STVector s Int)
+array_pq pq = indexMinPQArrays_pq <$> MV.readMutVar (indexMinPQ_arrays pq)
+
+-- | Getter for @qp@ array
+array_qp :: IndexMinPQ s key -> ST s (UVec.STVector s Int)
+array_qp pq = indexMinPQArrays_qp <$> MV.readMutVar (indexMinPQ_arrays pq)
+
+-- | Getter for @keys@ array
+array_keys :: IndexMinPQ s key -> ST s (BVec.STVector s key)
+array_keys pq = indexMinPQArrays_keys <$> MV.readMutVar (indexMinPQ_arrays pq)
+
+-- | Grow 'IndexMinPQArrays' by the given number of elements
+growArrays
+  :: Int -- ^ maxN: old maximum queue size
+  -> IndexMinPQArrays s key -- ^ old arrays
+  -> Int -- ^ the number of elements to grow by
+  -> ST s (IndexMinPQArrays s key) -- ^ new arrays
+growArrays maxN arrays growSize = do
+  when (growSize < 0) $
+    fail $ "growArrays: bad growSize: " <> show growSize
+  newPq <- safeGrow (indexMinPQArrays_pq arrays) (const 0)
+  newQp <- safeGrow (indexMinPQArrays_qp arrays) $ const (-1)
+  newKeys <- safeGrow (indexMinPQArrays_keys arrays) mkKeysError
+  pure $ IndexMinPQArrays newPq newQp newKeys
+  where
+    uninitializedIndexRange = [maxN + 1 .. maxN + growSize] -- the newly created index range
+
+    -- grow and initialize the new indices to the specified value
+    safeGrow vector initVal = do
+      newArray <- Vec.unsafeGrow vector growSize
+      forM_ uninitializedIndexRange $ \i -> Vec.write newArray i (initVal i)
+      pure newArray
+
 
 assertFail
   :: Show key
@@ -70,13 +117,15 @@ debugShowState
   => IndexMinPQ s key
   -> ST s String
 debugShowState pq = do
-  n <- MV.readMutVar (state_n pq)
-  pq' <- showArray n (state_pq pq)
-  qp <- showArray n (state_qp pq)
-  keys <- showArrayWithBottoms n (state_keys pq)
+  n <- MV.readMutVar (indexMinPQ_n pq)
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  pq' <- showArray n (indexMinPQArrays_pq arrays)
+  qp <- showArray n (indexMinPQArrays_qp arrays)
+  keys <- showArrayWithBottoms n (indexMinPQArrays_keys arrays)
+  maxN <- MV.readMutVar $ indexMinPQ_maxN pq
   pure $ unwords
     [ "IndexMinPQ {"
-    , record "maxN" (show $ state_maxN pq)
+    , record "maxN" (show maxN)
     , record "n" (show n)
     , record "pq" pq'
     , record "qp" qp
@@ -97,17 +146,17 @@ newIndexMinPQ' trace maxN = do
   -- Translation of IndexMinPQ constructor
   when (maxN < 0) $
     fail $ "newIndexMinPQ: Invalid maxN: " <> show maxN
+  maxNVar <- MV.newMutVar maxN
   n <- MV.newMutVar 0
   pq <- Vec.replicate (maxN + 1) 0
   qp <- Vec.replicate (maxN + 1) (-1)
   keys <- Vec.generate (maxN + 1) mkKeysError
+  arrays <- MV.newMutVar $ IndexMinPQArrays pq qp keys
   let queue = IndexMinPQ
         { indexMinPQ_trace = trace
-        , state_maxN = maxN
-        , state_n = n
-        , state_pq = pq
-        , state_qp = qp
-        , state_keys = keys
+        , indexMinPQ_maxN = maxNVar
+        , indexMinPQ_n = n
+        , indexMinPQ_arrays = arrays
         }
   debugTrace queue $ "Created new IndexMinPQ of size " <> show maxN
   pure queue
@@ -116,7 +165,7 @@ isEmpty
   :: IndexMinPQ s key
   -> ST s Bool
 isEmpty pq =
-  (== 0) <$> MV.readMutVar (state_n pq)
+  (== 0) <$> MV.readMutVar (indexMinPQ_n pq)
 
 insert
   :: (Ord key, Show key)
@@ -125,15 +174,17 @@ insert
   -> key
   -> ST s ()
 insert pq i key = do
+  growIfNeeded pq i
   validateIndex pq i
   whenM (contains pq i) $
     fail $ "index is already in the priority queue: " <> show i
-  n <- modifyMutVar (state_n pq) (+ 1) -- n++
-  write pq state_qp i n -- qp[i] = n
-  write pq state_pq n i -- pq[n] = i
-  write pq state_keys i key -- keys[i] = key
+  n <- modifyMutVar (indexMinPQ_n pq) (+ 1) -- n++
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  write arrays indexMinPQArrays_qp i n -- qp[i] = n
+  write arrays indexMinPQArrays_pq n i -- pq[n] = i
+  write arrays indexMinPQArrays_keys i key -- keys[i] = key
   swim pq n -- swim(n)
-  debugTrace pq $ "insert " <> show i <> " " <> show key
+  debugTrace pq $ "insert i=" <> show i <> " key=" <> show key
 
 minIndex
   :: Show key
@@ -141,7 +192,7 @@ minIndex
   -> ST s Int
 minIndex pq = do
   assertQueueNotEmpty pq
-  Vec.read (state_pq pq) 1 -- return pq[1]
+  array_pq pq >>= (`Vec.read` 1)  -- return pq[1]
 
 minKey
   :: Show key
@@ -149,7 +200,7 @@ minKey
   -> ST s key
 minKey pq = do
   minKeyIndex <- minIndex pq -- pq[1]
-  Vec.read (state_keys pq) minKeyIndex -- keys[pq[1]]
+  array_keys pq >>= (`Vec.read` minKeyIndex) -- keys[pq[1]]
 
 delMin
   :: (Ord key, Show key)
@@ -157,14 +208,15 @@ delMin
   -> ST s Int
 delMin pq = do
   min' <- minIndex pq -- int min = pq[1]
-  prevN <- MV.atomicModifyMutVar' (state_n pq) (\n -> (n-1, n)) -- decrement "n", return original "n"
+  prevN <- MV.atomicModifyMutVar' (indexMinPQ_n pq) (\n -> (n-1, n)) -- decrement "n", return original "n"
   exch pq 1 prevN -- exch(1, n--) -- NOTE: the unincremented "n" is passed to "exch" since the postfix decrement operator is used
   sink pq 1 -- sink(1)
-  unlessM ((== min') <$> Vec.read (state_pq pq) prevN) $
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  unlessM ((== min') <$> Vec.read (indexMinPQArrays_pq arrays) prevN) $
     assertFail pq "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
-  write pq state_qp min' (-1) -- qp[min] = -1
-  write pq state_keys min' $ mkKeysError min' -- keys[min] = null
-  write pq state_pq prevN (-1) -- pq[n+1] = -1
+  write arrays indexMinPQArrays_qp min' (-1) -- qp[min] = -1
+  write arrays indexMinPQArrays_keys min' $ mkKeysError min' -- keys[min] = null
+  write arrays indexMinPQArrays_pq prevN (-1) -- pq[n+1] = -1
   debugTrace pq "delMin"
   pure min'
 
@@ -178,7 +230,7 @@ keyOf
 keyOf pq i = do
     unlessM (contains pq i) $
       fail $ "no such index: " <> show i
-    Vec.read (state_keys pq) i
+    array_keys pq >>= (`Vec.read` i)
 
 contains
   :: IndexMinPQ s key
@@ -186,7 +238,7 @@ contains
   -> ST s Bool
 contains pq i = do
   validateIndex pq i
-  (/= -1) <$> Vec.read (state_qp pq) i -- return qp[i] != -1;
+  (/= -1) <$> (array_qp pq >>= (`Vec.read` i)) -- return qp[i] != -1;
 
 decreaseKey
   :: (Ord key, Show key)
@@ -201,8 +253,9 @@ decreaseKey pq i key = do
     fail $ "Calling decreaseKey() with a key equal to the key in the priority queue: " <> show (i, key)
   when (key > iKey) $ -- if (keys[i].compareTo(key) < 0)
     fail $ "Calling decreaseKey() with a key strictly greater than the key in the priority queue: " <> show (i, key, iKey)
-  write pq state_keys i key -- keys[i] = key
-  Vec.read (state_qp pq) i >>= swim pq -- swim(qp[i])
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  write arrays indexMinPQArrays_keys i key -- keys[i] = key
+  Vec.read (indexMinPQArrays_qp arrays) i >>= swim pq -- swim(qp[i])
   debugTrace pq $ "decreaseKey " <> show i <> " " <> show key
 
 -- | Empty the queue and return the elements as a sorted list (increasing order)
@@ -214,7 +267,7 @@ emptyAsSortedList pq =
   go
   where
     go = do
-      n <- MV.readMutVar (state_n pq)
+      n <- MV.readMutVar (indexMinPQ_n pq)
       if n == 0
         then pure []
         else do
@@ -226,6 +279,30 @@ emptyAsSortedList pq =
 -- * General helper functions.
 -- ***************************************************************************
 
+-- ^ Check if it's necessary to grow the arrays based on the index
+growIfNeeded
+  :: Show key
+  => IndexMinPQ s key
+  -> Int -- ^ Index
+  -> ST s ()
+growIfNeeded pq i = do
+  maxN <- MV.readMutVar $ indexMinPQ_maxN pq
+  when (i >= maxN) $
+    grow maxN
+  where
+    grow maxN = do
+      MV.writeMutVar (indexMinPQ_maxN pq) newSize
+      arrays <- MV.readMutVar arraysVar
+      newArrays <- growArrays maxN arrays growBySize
+      MV.writeMutVar arraysVar newArrays
+      debugTrace pq $ "Grew queue to size " <> show newSize <> ": i=" <> show i <> ", maxN=" <> show maxN
+      where
+        -- for performance, we want to at least double the size of the arrays when we resize them
+        minGrowBySize = max maxN 1 -- gracefully handle the case where maxN=0
+        growBySize = max (i + 1 - maxN) minGrowBySize
+        newSize = maxN + growBySize
+        arraysVar = indexMinPQ_arrays pq
+
 validateIndex
   :: IndexMinPQ s key
   -> Int
@@ -233,14 +310,15 @@ validateIndex
 validateIndex pq i = do
   when (i < 0) $
     fail $ "index is negative: " ++ show i
-  when (i >= state_maxN pq) $
+  maxN <- MV.readMutVar $ indexMinPQ_maxN pq
+  when (i >= maxN) $
     fail $ "index >= capacity: " ++ show i
 
 assertQueueNotEmpty
   :: IndexMinPQ s key
   -> ST s ()
 assertQueueNotEmpty pq =
-  whenM ((== 0) <$> MV.readMutVar (state_n pq)) $
+  whenM ((== 0) <$> MV.readMutVar (indexMinPQ_n pq)) $
     fail "Priority queue underflow"
 
 -- | The bottom value stored in unused indices of 'state_keys'.
@@ -259,10 +337,11 @@ greater
   -> Int
   -> ST s Bool
 greater pq i j = do
-  pqI <- Vec.read (state_pq pq) i
-  pqJ <- Vec.read (state_pq pq) j
-  pqIKey <- Vec.read (state_keys pq) pqI
-  pqJKey <- Vec.read (state_keys pq) pqJ
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  pqI <- Vec.read (indexMinPQArrays_pq arrays) i
+  pqJ <- Vec.read (indexMinPQArrays_pq arrays) j
+  pqIKey <- Vec.read (indexMinPQArrays_keys arrays) pqI
+  pqJKey <- Vec.read (indexMinPQArrays_keys arrays) pqJ
   pure $ pqIKey > pqJKey
 
 exch
@@ -272,12 +351,13 @@ exch
   -> Int
   -> ST s ()
 exch pq i j = do
-  swap <- Vec.read (state_pq pq) i -- int swap = pq[i];
-  oldPqJ <- Vec.read (state_pq pq) j -- "save the old pq[j] because we need to use it twice"
-  write pq state_pq i oldPqJ -- pq[i] = pq[j];
-  write pq state_pq j swap -- pq[j] = swap;
-  write pq state_qp oldPqJ i -- qp[oldPqJ] = i;
-  write pq state_qp swap j -- qp[swap] = j;
+  arrays <- MV.readMutVar (indexMinPQ_arrays pq)
+  swap <- Vec.read (indexMinPQArrays_pq arrays) i -- int swap = pq[i];
+  oldPqJ <- Vec.read (indexMinPQArrays_pq arrays) j -- "save the old pq[j] because we need to use it twice"
+  write arrays indexMinPQArrays_pq i oldPqJ -- pq[i] = pq[j];
+  write arrays indexMinPQArrays_pq j swap -- pq[j] = swap;
+  write arrays indexMinPQArrays_qp oldPqJ i -- qp[oldPqJ] = i;
+  write arrays indexMinPQArrays_qp swap j -- qp[swap] = j;
   debugTrace pq $ "exch " <> show i <> " " <> show j
 
 --  ***************************************************************************
@@ -306,7 +386,7 @@ sink pq k' = do
   debugTrace pq $ "sink " <> show k'
   where
     go k = do
-      n <- MV.readMutVar (state_n pq)
+      n <- MV.readMutVar (indexMinPQ_n pq)
       when (2*k <= n) $ do
         let j = 2*k -- int j = 2*k
         jIsGreaterThanJPlusOne <- greater pq j (j+1)
@@ -331,8 +411,8 @@ write
   :: ( Vec.MVector v a
      , Show key
      )
-  => IndexMinPQ s key -- ^ Queue
-  -> (IndexMinPQ s key -> v s a) -- ^ Array in queue
+  => IndexMinPQArrays s key -- ^ Queue arrays
+  -> (IndexMinPQArrays s key -> v s a) -- ^ Specific array
   -> Int -- ^ Index
   -> a -- ^ Value
   -> ST s ()

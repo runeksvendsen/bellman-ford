@@ -18,7 +18,7 @@ spec :: Bool -> Tasty.TestTree
 spec printTrace = Tasty.testGroup "IndexMinPQ" $
     [ Tasty.testGroup "'emptyAsSortedList' on queue with items inserted in shuffled order"
         [ QS.testProperty "returns sorted items" $ \priorities ->
-            enqueueListDeque printTrace (map (,Nothing) priorities)
+            enqueueListDeque printTrace (fmap (,Nothing) priorities)
         , QS.testProperty "with arbitrary 'decreaseKey': returns sorted items" (enqueueListDeque printTrace)
         ]
     ]
@@ -27,15 +27,15 @@ type Priority = Int
 
 enqueueListDeque
     :: Bool
-    -> [(Priority, Maybe (Positive Priority))] -- ^ (Initial priority, maybe amount to decrease priority)
+    -> ListWithIndex (Priority, Maybe (Positive Priority)) -- ^ (Initial priority, maybe amount to decrease priority)
     -> Expectation
-enqueueListDeque printTrace priorities' = do
+enqueueListDeque printTrace (ListWithIndex priorities' initialQueueSize) = do
     shuffledIndexedItems <- Shuffle.shuffleM indexedItems
     let shuffledIndexedItemsWithoutAdjustments = map (fmap fst) shuffledIndexedItems
     shuffledIndexedItems2 <- Shuffle.shuffleM shuffledIndexedItems
     shuffledAdjustedPrioIndexedItems <- Shuffle.shuffleM adjustedPrioIndexedItems
     dequeuedList <- ST.stToIO $ do
-        queue <- newQueue (length priorities)
+        queue <- newQueue initialQueueSize
         forM_ shuffledIndexedItemsWithoutAdjustments $ \(i, item) ->
             Lib.insert queue i item
         forM_ shuffledIndexedItems2 $ \(index, (originalPrio, mDecreasePrio)) ->
