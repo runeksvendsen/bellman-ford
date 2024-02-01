@@ -17,6 +17,7 @@ module Data.IndexMinPQ
 , insert
 , minKey
 , delMin
+, delMinKey
 , keyOf
 , contains
 , decreaseKey
@@ -227,6 +228,16 @@ delMin pq = do
   debugTrace pq "delMin"
   pure min'
 
+-- | Same as 'delMin' but also return the associated key
+delMinKey
+  :: (Ord key)
+  => IndexMinPQ s key
+  -> ST s (Int, key)
+delMinKey pq = do
+  key <- minKey pq
+  i <- delMin pq
+  pure (i, key)
+
 -- | Get the key for the given index.
 --
 --  Throws an error if the index does not exist.
@@ -280,9 +291,8 @@ emptyAsSortedList pq =
       if n == 0
         then pure []
         else do
-          key <- minKey pq
-          i <- delMin pq
-          ((i, key) :) <$> go
+          iAndKey <- delMinKey pq
+          (iAndKey :) <$> go
 
 -- ***************************************************************************
 -- * General helper functions.
