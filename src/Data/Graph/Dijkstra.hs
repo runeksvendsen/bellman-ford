@@ -25,7 +25,7 @@ import           Data.Graph.SP.Types
 import qualified Data.Graph.Digraph                 as DG
 import qualified Data.Graph.Edge                    as E
 import           Data.Array.ST                      (STUArray)
-import qualified Data.TmpMinPQ as Q
+import qualified Data.MinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import Debug.Trace (traceM)
@@ -98,7 +98,7 @@ data State s v meta = State
 
 -- |
 data MState s v meta = MState
-    { queue     :: Q.TmpMinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
+    { queue     :: Q.MinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -114,7 +114,7 @@ resetState mutState = R.lift $ do
     emptyQueue (queue mutState)
   where
     emptyQueue
-        :: Q.TmpMinPQ s p v -> ST s ()
+        :: Ord p => Q.MinPQ s p v -> ST s ()
     emptyQueue = Q.empty
 
 -- | NB: has no effect if the source vertex does not exist
@@ -382,9 +382,10 @@ relax pathTo' distToFrom edge = do
 initState
     :: DG.Digraph s v meta   -- ^ Graph
     -> ST s (MState s g e)   -- ^ Initialized state
-initState _ =
+initState graph = do
+    vertexCount <- fromIntegral <$> DG.vertexCount graph
     MState
-        <$> Q.new                                    -- queue
+        <$> Q.new vertexCount
 
 -- | Add vertex to queue (helper function)
 enqueueVertex
