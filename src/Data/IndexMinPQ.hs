@@ -44,8 +44,12 @@ data IndexMinPQ s key = IndexMinPQ
     -- ^ number of elements on PQ
   , indexMinPQ_arrays :: MV.MutVar s (IndexMinPQArrays s key)
     -- ^ all the arrays
-  , indexMinPQ_trace :: Bool
+  , indexMinPQ_trace :: String -> ST s ()
     -- ^ print debug/trace info
+  , indexMinPQ_traceInfo :: IndexMinPQ s key -> ST s String
+    -- ^ additional debug info to print
+  , indexMinPQ_traceShowKey :: key -> String
+    -- ^ show a 'key' for tracing purposes
   }
 
 data IndexMinPQArrays s key = IndexMinPQArrays
@@ -93,24 +97,19 @@ growArrays maxN arrays growSize = do
       forM_ uninitializedIndexRange $ \i -> Vec.write newArray i (initVal i)
       pure newArray
 
-
 assertFail
-  :: Show key
-  => IndexMinPQ s key
-  -> String
+  :: String
   -> ST s a
-assertFail pq msg = do
-  dbgInfo <- debugShowState pq
-  fail $ unwords [msg <> ".", dbgInfo]
+assertFail =
+  fail
 
 debugTrace
-  :: Show key
-  => IndexMinPQ s key
+  :: IndexMinPQ s key
   -> String
   -> ST s ()
-debugTrace pq msg = when (indexMinPQ_trace pq) $ do
-  dbgInfo <- debugShowState pq
-  traceM $ msg <> ": " <> dbgInfo
+debugTrace pq msg = do
+  dbgInfo <- indexMinPQ_traceInfo pq pq
+  indexMinPQ_trace pq $ msg <> ": " <> dbgInfo
 
 debugShowState
   :: Show key
@@ -135,14 +134,19 @@ debugShowState pq = do
   where
     record name val = name <> "=" <> val
 
-newIndexMinPQ :: Show key => Int -> ST s (IndexMinPQ s key)
-newIndexMinPQ = newIndexMinPQ' False
+newIndexMinPQ :: Int -> ST s (IndexMinPQ s key)
+newIndexMinPQ = newIndexMinPQ' (const "") (const $ pure "") (const $ pure ())
 
 newIndexMinPQTrace :: Show key => Int -> ST s (IndexMinPQ s key)
-newIndexMinPQTrace = newIndexMinPQ' True
+newIndexMinPQTrace = newIndexMinPQ' show debugShowState traceM
 
-newIndexMinPQ' :: Show key => Bool -> Int -> ST s (IndexMinPQ s key)
-newIndexMinPQ' trace maxN = do
+newIndexMinPQ'
+  :: (key -> String) -- ^ show a 'key'
+  -> (IndexMinPQ s key -> ST s String) -- ^ Produce a string that's added to the trace
+  -> (String -> ST s ()) -- ^ Actually output the trace
+  -> Int -- ^ initial queue size
+  -> ST s (IndexMinPQ s key)
+newIndexMinPQ' showKey traceInfo trace maxN = do
   -- Translation of IndexMinPQ constructor
   when (maxN < 0) $
     fail $ "newIndexMinPQ: Invalid maxN: " <> show maxN
@@ -154,6 +158,8 @@ newIndexMinPQ' trace maxN = do
   arrays <- MV.newMutVar $ IndexMinPQArrays pq qp keys
   let queue = IndexMinPQ
         { indexMinPQ_trace = trace
+        , indexMinPQ_traceInfo = traceInfo
+        , indexMinPQ_traceShowKey = showKey
         , indexMinPQ_maxN = maxNVar
         , indexMinPQ_n = n
         , indexMinPQ_arrays = arrays
@@ -168,7 +174,7 @@ isEmpty pq =
   (== 0) <$> MV.readMutVar (indexMinPQ_n pq)
 
 insert
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> Int
   -> key
@@ -184,26 +190,26 @@ insert pq i key = do
   write arrays indexMinPQArrays_pq n i -- pq[n] = i
   write arrays indexMinPQArrays_keys i key -- keys[i] = key
   swim pq n -- swim(n)
-  debugTrace pq $ "insert i=" <> show i <> " key=" <> show key
+  debugTrace pq $ "insert i=" <> show i <> " key=" <> showKey key
+  where
+    showKey = indexMinPQ_traceShowKey pq
 
 minIndex
-  :: Show key
-  => IndexMinPQ s key
+  :: IndexMinPQ s key
   -> ST s Int
 minIndex pq = do
   assertQueueNotEmpty pq
   array_pq pq >>= (`Vec.read` 1)  -- return pq[1]
 
 minKey
-  :: Show key
-  => IndexMinPQ s key
+  :: IndexMinPQ s key
   -> ST s key
 minKey pq = do
   minKeyIndex <- minIndex pq -- pq[1]
   array_keys pq >>= (`Vec.read` minKeyIndex) -- keys[pq[1]]
 
 delMin
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> ST s Int
 delMin pq = do
@@ -212,8 +218,9 @@ delMin pq = do
   exch pq 1 prevN -- exch(1, n--) -- NOTE: the unincremented "n" is passed to "exch" since the postfix decrement operator is used
   sink pq 1 -- sink(1)
   arrays <- MV.readMutVar (indexMinPQ_arrays pq)
-  unlessM ((== min') <$> Vec.read (indexMinPQArrays_pq arrays) prevN) $
-    assertFail pq "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
+  unlessM ((== min') <$> Vec.read (indexMinPQArrays_pq arrays) prevN) $ do
+    debugTrace pq "debug info for below assertion failure"
+    assertFail "Assertion failed: min == pq[n+1]"  -- assert min == pq[n+1]
   write arrays indexMinPQArrays_qp min' (-1) -- qp[min] = -1
   write arrays indexMinPQArrays_keys min' $ mkKeysError min' -- keys[min] = null
   write arrays indexMinPQArrays_pq prevN (-1) -- pq[n+1] = -1
@@ -241,7 +248,7 @@ contains pq i = do
   (/= -1) <$> (array_qp pq >>= (`Vec.read` i)) -- return qp[i] != -1;
 
 decreaseKey
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> Int
   -> key
@@ -250,17 +257,19 @@ decreaseKey pq i key = do
   validateIndex pq i
   iKey <- keyOf pq i
   when (iKey == key) $ -- if (keys[i].compareTo(key) == 0)
-    fail $ "Calling decreaseKey() with a key equal to the key in the priority queue: " <> show (i, key)
+    fail $ "Calling decreaseKey() with a key equal to the key in the priority queue. i=" <> show i <> ", key=" <> showKey key
   when (key > iKey) $ -- if (keys[i].compareTo(key) < 0)
-    fail $ "Calling decreaseKey() with a key strictly greater than the key in the priority queue: " <> show (i, key, iKey)
+    fail $ "Calling decreaseKey() with a key strictly greater than the key in the priority queue: i=" <> show i <> ", key=" <> showKey key <> ", iKey=" <> showKey iKey
   arrays <- MV.readMutVar (indexMinPQ_arrays pq)
   write arrays indexMinPQArrays_keys i key -- keys[i] = key
   Vec.read (indexMinPQArrays_qp arrays) i >>= swim pq -- swim(qp[i])
-  debugTrace pq $ "decreaseKey " <> show i <> " " <> show key
+  debugTrace pq $ "decreaseKey " <> show i <> " " <> showKey key
+  where
+    showKey = indexMinPQ_traceShowKey pq
 
 -- | Empty the queue and return the elements as a sorted list (increasing order)
 emptyAsSortedList
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> ST s [(Int, key)]
 emptyAsSortedList pq =
@@ -281,8 +290,7 @@ emptyAsSortedList pq =
 
 -- ^ Check if it's necessary to grow the arrays based on the index
 growIfNeeded
-  :: Show key
-  => IndexMinPQ s key
+  :: IndexMinPQ s key
   -> Int -- ^ Index
   -> ST s ()
 growIfNeeded pq i = do
@@ -345,8 +353,7 @@ greater pq i j = do
   pure $ pqIKey > pqJKey
 
 exch
-  :: Show key
-  => IndexMinPQ s key
+  :: IndexMinPQ s key
   -> Int
   -> Int
   -> ST s ()
@@ -365,7 +372,7 @@ exch pq i j = do
 --  ***************************************************************************
 
 swim
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> Int
   -> ST s ()
@@ -377,7 +384,7 @@ swim pq k =
       swim pq halfOfK -- k = k/2 (also acts as the "while" by recursing)
 
 sink
-  :: (Ord key, Show key)
+  :: (Ord key)
   => IndexMinPQ s key
   -> Int
   -> ST s ()
@@ -408,9 +415,7 @@ sink pq k' = do
 
 -- | Write a value to an array
 write
-  :: ( Vec.MVector v a
-     , Show key
-     )
+  :: (Vec.MVector v a)
   => IndexMinPQArrays s key -- ^ Queue arrays
   -> (IndexMinPQArrays s key -> v s a) -- ^ Specific array
   -> Int -- ^ Index
