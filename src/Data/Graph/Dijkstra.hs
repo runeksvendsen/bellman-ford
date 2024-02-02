@@ -96,9 +96,23 @@ data State s v meta = State
     , sMState           :: MState s v meta
     }
 
+-- | A vertex, along with (1) the path from "src" to the vertex; and (2) the distance of this path
+data QueueItem v meta = QueueItem
+    {-# UNPACK #-} !DG.VertexId -- ^ vertex
+    {-# UNPACK #-} !Double -- ^ weight of path to vertex
+    !(MyList (DG.IdxEdge v meta)) -- ^ path to vertex
+
+-- | Uses only 'queueItem_weight'
+instance Eq (QueueItem v meta) where
+    QueueItem _ w1 _ == QueueItem _ w2 _ = w1 == w2
+
+-- | Uses only 'queueItem_weight'
+instance Ord (QueueItem v meta) where
+    QueueItem _ w1 _ <= QueueItem _ w2 _ = w1 == w2
+
 -- |
-data MState s v meta = MState
-    { queue     :: Q.MinPQ s Double (DG.VertexId, MyList (DG.IdxEdge v meta))
+newtype MState s v meta = MState
+    { queue     :: Q.MinPQ s (QueueItem v meta)
     }
 
 -- | Necessary because of floating point rounding errors.
@@ -114,7 +128,7 @@ resetState mutState = R.lift $ do
     emptyQueue (queue mutState)
   where
     emptyQueue
-        :: Ord p => Q.MinPQ s p v -> ST s ()
+        :: Ord item => Q.MinPQ s item -> ST s ()
     emptyQueue = Q.empty
 
 -- | NB: has no effect if the source vertex does not exist
@@ -344,7 +358,7 @@ dijkstraTerminate terminate src = do
 
     go calcPathLength pq graph trace' = do
         mPrioV <- R.lift $ Q.pop pq
-        forM_ mPrioV $ \(prio, (v, pathTo')) -> do
+        forM_ mPrioV $ \(QueueItem v prio pathTo') -> do
             unless (calcPathLength pathTo' == prio) $
                 error $ "dijkstraTerminate: prio /= length path. Prio: " <> show prio <> " path: " <> show pathTo'
             mV <- R.lift $ DG.lookupVertexId graph v
@@ -393,5 +407,5 @@ enqueueVertex
     -> (DG.VertexId, MyList (DG.IdxEdge g e))
     -> Double
     -> ST s ()
-enqueueVertex state v dist = do
-    Q.push (queue state) dist v
+enqueueVertex state (v, pathTo) dist = do
+    Q.push (queue state) $ QueueItem v dist pathTo
