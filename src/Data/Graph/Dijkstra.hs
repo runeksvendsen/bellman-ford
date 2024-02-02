@@ -108,7 +108,7 @@ instance Eq (QueueItem v meta) where
 
 -- | Uses only 'queueItem_weight'
 instance Ord (QueueItem v meta) where
-    QueueItem _ w1 _ <= QueueItem _ w2 _ = w1 == w2
+    QueueItem _ w1 _ <= QueueItem _ w2 _ = w1 <= w2
 
 -- |
 newtype MState s v meta = MState
