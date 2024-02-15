@@ -69,7 +69,6 @@ test-suite bellman-ford-test
       BellmanFord.Spec
       Dijkstra.Spec
       Digraph.Spec
-      Digraph.DotGraph
       EmptyGraph
       Queue.Spec
       IndexMinPQ.Spec
