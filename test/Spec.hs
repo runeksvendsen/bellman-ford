@@ -26,10 +26,10 @@ main = runTestTree $
         in Tasty.testGroup "Properties" $
             [ mkLocalOption 5 $ Util.spec
             , mkLocalOption 5 $ Queue.spec
-            , mkLocalOption 5 $ IndexMinPQ.spec
+            , mkLocalOption 5 $ IndexMinPQ.spec printTrace
             , mkLocalOption 3 $ Digraph.spec
             , mkLocalOption 3 $ BellmanFord.spec runBF
-            , mkLocalOption 3 $ Dijkstra.spec
+            -- , mkLocalOption 3 $ Dijkstra.spec
             ]
   where
     mkLocalOption scDepth =

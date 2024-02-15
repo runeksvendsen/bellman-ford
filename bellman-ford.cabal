@@ -39,6 +39,7 @@ library
       Data.Stack
       Data.IndexMinPQ
       Data.TmpMinPQ
+      Data.MinPQ
   other-modules:
       Paths_bellman_ford
   hs-source-dirs:
@@ -60,6 +61,7 @@ library
     , containers
     , text
     , psqueues
+    , vector
   default-language: Haskell2010
 
 test-suite bellman-ford-test

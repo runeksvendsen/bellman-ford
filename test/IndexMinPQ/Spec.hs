@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 module IndexMinPQ.Spec
 ( spec )
@@ -15,27 +14,28 @@ import qualified Test.Hspec.SmallCheck () -- Apparently has an instance for "Tes
 import qualified System.Random.Shuffle as Shuffle
 import Data.List (sortOn, groupBy)
 
-spec :: Tasty.TestTree
-spec = Tasty.testGroup "IndexMinPQ" $
+spec :: Bool -> Tasty.TestTree
+spec printTrace = Tasty.testGroup "IndexMinPQ" $
     [ Tasty.testGroup "'emptyAsSortedList' on queue with items inserted in shuffled order"
         [ QS.testProperty "returns sorted items" $ \priorities ->
-            enqueueListDeque (map (,Nothing) priorities)
-        , QS.testProperty "with arbitrary 'decreaseKey': returns sorted items" enqueueListDeque
+            enqueueListDeque printTrace (fmap (,Nothing) priorities)
+        , QS.testProperty "with arbitrary 'decreaseKey': returns sorted items" (enqueueListDeque printTrace)
         ]
     ]
 
 type Priority = Int
 
 enqueueListDeque
-    :: [(Priority, Maybe (Positive Priority))] -- ^ (Initial priority, maybe amount to decrease priority)
+    :: Bool
+    -> ListWithIndex (Priority, Maybe (Positive Priority)) -- ^ (Initial priority, maybe amount to decrease priority)
     -> Expectation
-enqueueListDeque priorities' = do
+enqueueListDeque printTrace (ListWithIndex priorities' initialQueueSize) = do
     shuffledIndexedItems <- Shuffle.shuffleM indexedItems
     let shuffledIndexedItemsWithoutAdjustments = map (fmap fst) shuffledIndexedItems
     shuffledIndexedItems2 <- Shuffle.shuffleM shuffledIndexedItems
     shuffledAdjustedPrioIndexedItems <- Shuffle.shuffleM adjustedPrioIndexedItems
     dequeuedList <- ST.stToIO $ do
-        queue <- Lib.newIndexMinPQ (length priorities)
+        queue <- newQueue initialQueueSize
         forM_ shuffledIndexedItemsWithoutAdjustments $ \(i, item) ->
             Lib.insert queue i item
         forM_ shuffledIndexedItems2 $ \(index, (originalPrio, mDecreasePrio)) ->
@@ -56,6 +56,8 @@ enqueueListDeque priorities' = do
         `shouldBe`
             sortEqualPrioritySublists (sortOn snd shuffledAdjustedPrioIndexedItems)
     where
+        newQueue = if printTrace then Lib.newIndexMinPQTrace else Lib.newIndexMinPQ
+
         priorities = map (fmap $ fmap unPositive) priorities'
 
         adjustedPrioIndexedItems = map
