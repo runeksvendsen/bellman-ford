@@ -524,7 +524,7 @@ graphToDot mkVertexAttrs mkEdgeAttrs gLabel g = do
 
     mkNode (v, idx) = statement $ LT.unwords
         [ showVertexId idx
-        , bracketize $ mkLabels (mkVertexAttrs v)
+        , mkLabels (mkVertexAttrs v)
         ]
 
     mkEdge idxEdge edgeLabels =
@@ -532,7 +532,7 @@ graphToDot mkVertexAttrs mkEdgeAttrs gLabel g = do
             [ showVertexId $ eFromIdx idxEdge
             , "->"
             , showVertexId $ eToIdx idxEdge
-            , bracketize $ mkLabels edgeLabels
+            , mkLabels edgeLabels
             ]
 
     mkEdges idxEdge =
