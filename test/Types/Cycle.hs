@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 module Types.Cycle
 ( EdgeCycle(..)
 , NegativeCycle(..)
@@ -8,50 +9,49 @@ module Types.Cycle
 where
 
 import           Types.Edge
-import           Util.GenData                         (GenData(..), SuchThat(..))
+import           Util.GenData
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty                   as NE
 import           Data.Graph.Cycle                     (verifyCycle)
 import           Data.Maybe                           (isNothing)
 import qualified Control.Exception                    as Ex
-import           Data.List                            (sort, nub)
 
 
-newtype EdgeCycle = EdgeCycle { getEdgeCycle :: NE.NonEmpty TestEdge }
+newtype EdgeCycle weight = EdgeCycle { getEdgeCycle :: NE.NonEmpty (TestEdge weight) }
    deriving (Eq, Show, Ord)
 
-instance Monad m => SS.Serial m EdgeCycle where
+instance (Monad m, SS.Serial m weight, Show weight) => SS.Serial m (EdgeCycle weight) where
    series = edgeCycle
 
-instance QC.Arbitrary EdgeCycle where
+instance (QC.Arbitrary weight, Show weight) => QC.Arbitrary (EdgeCycle weight) where
    arbitrary = edgeCycle
 
 edgeCycle
    :: ( GenData m [String]
-      , GenData m Double
+      , GenData m weight
+      , Show weight
       )
-   => m EdgeCycle
+   => m (EdgeCycle weight)
 edgeCycle = do
    edgeList <- edgeCycleEdges
    let isValidCycle = isNothing . verifyCycle . NE.toList
    return $ EdgeCycle $ Ex.assert (isValidCycle edgeList) edgeList
 
 edgeCycleEdges
-   :: ( GenData m [String]
-      , GenData m Double
+   :: ( GenData m weight
       )
-   => m (NE.NonEmpty TestEdge)
+   => m (NE.NonEmpty (TestEdge weight))
 edgeCycleEdges = do
     -- Data.Graph.Cycle does not support self-loops, so we
     --  make sure to generate at least 2 vertices
-    vertexList <- uniqueElemList `suchThat` ((> 1) . length)
+    vertexList <- genVertexList
     --    Example data transformation for (pairUp . headToLast . duplicate):
     --       [a, b, c, d]
     --    => [a, a, b, b, c, c, d, d]
     --    => [a, b, b, c, c, d, d, a]
     --    => [(a,b), (b,c), (c,d), (d,a)]
-    let vertexPairs = pairUp $ headToLast (duplicate vertexList)
+    let vertexPairs = pairUp $ headToLast (duplicate $ NE.toList vertexList)
         toEdgeM (from,to) = TestEdge from to <$> genData
     NE.fromList <$> mapM toEdgeM vertexPairs
   where
@@ -65,28 +65,44 @@ edgeCycleEdges = do
     duplicate [] = []
     duplicate (x:xs) = x:x:duplicate xs
 
-uniqueElemList :: (Ord a, GenData m [a]) => m [a]
-uniqueElemList =
-    genData `suchThat` containsUniqueElements
-  where
-   containsUniqueElements list =
-      (length . nub . sort $ list) == length list
+genVertexList :: ArbData m => m (NE.NonEmpty String)
+genVertexList = do
+   k <- getListSize
+   pure $ "A1" NE.:| take k idList
+   where
+      idList =
+         let baseIds = ['A'..'Z']
+             go !n = map (replicate n) baseIds : go (n+1)
+         in concat (go 1)
 
-newtype NegativeCycle = NegativeCycle { getNegativeCycle :: NE.NonEmpty TestEdge }
+newtype NegativeCycle weight = NegativeCycle { getNegativeCycle :: NE.NonEmpty (TestEdge weight) }
    deriving (Eq, Show, Ord)
 
-instance Monad m => SS.Serial m NegativeCycle where
+instance (Monad m, SS.Serial m weight, Show weight, Ord weight, Num weight, FuzzyOrd weight) => SS.Serial m (NegativeCycle weight) where
    series = negativeCycle
 
-instance QC.Arbitrary NegativeCycle where
+instance (QC.Arbitrary weight, Show weight, Ord weight, Num weight, FuzzyOrd weight) => QC.Arbitrary (NegativeCycle weight) where
    arbitrary = negativeCycle
 
 negativeCycle
-   :: ( GenData m EdgeCycle
+   :: ( GenData m (EdgeCycle weight)
+      , Ord weight
+      , FuzzyOrd weight
+      , Num weight
+      , Show weight
       )
-   => m NegativeCycle
-negativeCycle =
-    NegativeCycle . getEdgeCycle <$> genData `suchThat` negativeWeightSum
+   => m (NegativeCycle weight)
+negativeCycle = fmap assertNegativeWeightSum $
+    NegativeCycle . getEdgeCycle <$> genData `suchThat` ((`fuzzyLT` 0) . negativeWeightSum . getEdgeCycle)
   where
     negativeWeightSum edgeCycle' =
-        sum (NE.map getWeight $ getEdgeCycle edgeCycle') < 0
+        sum (NE.map getWeight edgeCycle')
+
+    assertNegativeWeightSum c =
+      let c' = getNegativeCycle c
+      in if negativeWeightSum c' < 0
+         then c
+         else error $
+            "BUG: negativeCycle: generated non-negative cycle: "
+               <> show (negativeWeightSum c')
+               <> " " <> show c'

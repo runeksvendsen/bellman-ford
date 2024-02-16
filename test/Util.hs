@@ -13,9 +13,8 @@ import           Types.Edge
 import qualified Data.List
 
 fromIdxEdge
-    :: (Lib.HasWeight meta Double)
-    => Lib.IdxEdge String meta -> TestEdge
-fromIdxEdge idxEdge = TestEdge (Lib.fromNode idxEdge) (Lib.toNode idxEdge) (Lib.weight $ Lib.metaData idxEdge)
+    :: Lib.IdxEdge String weight -> TestEdge weight
+fromIdxEdge idxEdge = TestEdge (Lib.fromNode idxEdge) (Lib.toNode idxEdge) (Lib.metaData idxEdge)
 
 -- | Are the two given sequence "the same"?
 --   Here, two sequences "A" and "B" are defined as "the same"

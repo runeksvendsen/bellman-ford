@@ -1,6 +1,10 @@
 packages:
     *.cabal
 
+with-compiler: ghc-9.0.2
+
+test-show-details: direct
+
 source-repository-package
     type: git
     location: https://github.com/runeksvendsen/mono-traversable.git

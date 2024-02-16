@@ -2,75 +2,103 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types.Edge
-( TestEdge(..)
-, PositiveWeight(..)
-, Unweighted(..)
-, NegLog(..)
+( TestEdge(..), idxEdgeToTestEdge
+, NonNegativeWeight(..)
+, BoundedIntegral, getBoundedIntegral
+, FuzzyOrd(..)
 )
 where
 
 import           Data.Graph.Digraph                   as Lib
 import qualified Test.SmallCheck.Series               as SS
 import qualified Test.Tasty.QuickCheck                as QC
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Graph.SP.Double
+import Data.Int
 
-
-data TestEdge = TestEdge
+data TestEdge weight = TestEdge
     { getFrom     :: String
     , getTo       :: String
-    , getWeight   :: Double
+    , getWeight   :: weight
     } deriving (Eq, Show, Ord)
 
-instance Lib.DirectedEdge TestEdge String Double where
+instance Functor TestEdge where
+   fmap f e = e{ getWeight = f (getWeight e) }
+
+instance Lib.DirectedEdge (TestEdge weight) String weight where
    fromNode = getFrom
    toNode = getTo
    metaData = getWeight
 
-instance Lib.HasWeight Double Double where
-   weight = id
+idxEdgeToTestEdge
+   :: Lib.IdxEdge String weight
+   -> TestEdge weight
+idxEdgeToTestEdge idx =
+   TestEdge (Lib.eFrom idx) (Lib.eTo idx) (Lib.eMeta idx)
 
-instance Monad m => SS.Serial m TestEdge where
+instance (Monad m, SS.Serial m weight) => SS.Serial m (TestEdge weight) where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
 
-instance QC.Arbitrary TestEdge where
+instance QC.Arbitrary weight => QC.Arbitrary (TestEdge weight) where
    arbitrary = TestEdge <$> QC.arbitrary <*> QC.arbitrary <*> QC.arbitrary
 
-newtype Unweighted a = Unweighted { unweighted :: a }
-   deriving (Eq, Show, Ord)
-
-instance Monad m => SS.Serial m (Unweighted TestEdge) where
-   series =
-      Unweighted <$> (TestEdge <$> SS.series <*> SS.series <*> return 0.0)
-
-instance QC.Arbitrary (Unweighted TestEdge) where
-   arbitrary = Unweighted <$> (TestEdge <$> QC.arbitrary <*> QC.arbitrary <*> return 0.0)
-
-newtype PositiveWeight = PositiveWeight { positiveWeight :: TestEdge }
+newtype NonNegativeWeight weight = NonNegativeWeight { nonNegativeWeight :: TestEdge weight }
    deriving (Eq, Ord)
 
-instance Show PositiveWeight where
-   show = show . positiveWeight
+instance Show weight => Show (NonNegativeWeight weight) where
+   show = show . nonNegativeWeight
 
-instance Monad m => SS.Serial m PositiveWeight where
+instance (Monad m, Num weight, Ord weight, SS.Serial m weight) => SS.Serial m (NonNegativeWeight weight) where
    series = do
-      SS.Positive weight' <- SS.series
-      edge <- SS.series
-      return $ PositiveWeight $ edge { getWeight = weight' }
+      SS.NonNegative weight' <- SS.series
+      edge :: TestEdge weight <- SS.series
+      return $ NonNegativeWeight $ edge { getWeight = weight' }
 
-instance QC.Arbitrary PositiveWeight where
+instance (Num weight, Ord weight, QC.Arbitrary weight) => QC.Arbitrary (NonNegativeWeight weight) where
    arbitrary =
-      let positiveEdge =
+      let nonNegativeEdge =
             TestEdge <$> QC.arbitrary
                      <*> QC.arbitrary
-                     <*> fmap QC.getPositive QC.arbitrary
-      in PositiveWeight <$> positiveEdge
+                     <*> fmap QC.getNonNegative QC.arbitrary
+      in NonNegativeWeight <$> nonNegativeEdge
 
--- | The negative log of something
-newtype NegLog a = NegLog { getLog :: a }
-   deriving (Eq, Show, Ord)
+newtype BoundedIntegral bound int = BoundedIntegral { getBoundedIntegral :: int }
+   deriving (Eq, Ord, Functor, Num, Bounded)
 
--- | Same instance as for 'TestEdge'
-instance Lib.DirectedEdge (NegLog TestEdge) String Double where
-   fromNode = fromNode . getLog
-   toNode = toNode . getLog
-   metaData = metaData . getLog
+instance Integral int => FuzzyOrd (BoundedIntegral bound int) where
+   fuzzyLT = (<)
+
+instance Show int => Show (BoundedIntegral bound int) where
+   show = show . getBoundedIntegral
+
+instance (Monad m, Num int, SS.Serial m bound, Integral bound)
+   => SS.Serial m (BoundedIntegral bound int) where
+      series = do
+         weight' :: bound <- SS.series
+         pure $ BoundedIntegral (fromIntegral weight')
+
+instance (Num int, QC.Arbitrary bound, Integral bound)
+   => QC.Arbitrary (BoundedIntegral bound int) where
+      arbitrary = do
+         weight' :: bound <- QC.arbitrary
+         pure $ BoundedIntegral (fromIntegral weight')
+
+-- Orphan
+instance (QC.Arbitrary a) => QC.Arbitrary (NE.NonEmpty a) where
+   arbitrary = fmap NE.fromList $
+      QC.arbitrary `QC.suchThat` (not . null)
+
+-- | Due to floating point rounding errors, using @< 0@ as the constraint on a negative cycle is not enough.
+--   For 'Double', we need to instead use 'Data.Graph.SP.Double.isLessThan'.
+--   This class exists only to support using a different "less than" function for 'Double'.
+class Eq a => FuzzyOrd a where
+   fuzzyLT :: a -> a -> Bool
+
+instance FuzzyOrd Double where
+   fuzzyLT = Data.Graph.SP.Double.isLessThan
+
+instance FuzzyOrd Int64 where
+   fuzzyLT = (<)

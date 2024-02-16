@@ -1,5 +1,7 @@
 module Util.QuickSmall
-( testProperty )
+( testProperty
+, testPropertyQC
+)
 where
 
 import qualified Test.Tasty                         as Tasty
@@ -15,6 +17,16 @@ testProperty
     -> Tasty.TestTree
 testProperty name prop =
     Tasty.testGroup name
-        [ SC.testProperty ("SmallCheck") prop
-        , QC.testProperty ("QuickCheck") prop
+        [ SC.testProperty "SmallCheck" prop
+        , QC.testProperty "QuickCheck" prop
+        ]
+
+testPropertyQC
+    :: (QC.Testable a)
+    => Tasty.TestName
+    -> a
+    -> Tasty.TestTree
+testPropertyQC name prop =
+    Tasty.testGroup name
+        [ QC.testProperty "QuickCheck" prop
         ]
