@@ -1,8 +1,10 @@
-with (import ./nix/pkgs.nix);
+{ nixpkgsFile ? ./nix/pkgs.nix
+}:
+with (import nixpkgsFile);
 pkgs.mkShell {
   nativeBuildInputs = [
     pkgs.haskell.compiler.ghc90
-    release-21-05.cabal-install
+    pkgsUnstable.cabal-install
     pkgs.git
     pkgs.zlib
   ];
