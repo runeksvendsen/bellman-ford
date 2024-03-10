@@ -19,6 +19,8 @@ import           Data.List                          (groupBy, sortOn, sort)
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations.Pretty     (Expectation, shouldBe)
 import qualified Test.Tasty                         as Tasty
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 
 spec :: Tasty.TestTree
@@ -37,6 +39,13 @@ spec = Tasty.testGroup "Digraph" $
        ]
     , Tasty.testGroup "fromIdxEdges"
        [ QS.testProperty "produces the same graph given edges from 'collectOutgoing'" (testFromIdxEdges @Double)
+       ]
+    , Tasty.testGroup "foldEdges"
+       [ QS.testProperty "'srcVid' and 'dstVid' arguments correct for edge" (testFoldEdges @Double)
+       ]
+    , Tasty.testGroup "outgoingIncomingCount"
+       [ QS.testProperty "outgoingCount == incomingCount" (testoutgoingIncomingCount @Double)
+       , QS.testProperty "counts == edge count * 2" (testoutgoingIncomingCount2 @Double . Set.fromList)
        ]
     ]
 
@@ -134,3 +143,48 @@ testFromIdxEdges edges = do
         igraph' <- Lib.freeze graph'
         pure (igraph, igraph')
     igraph' `shouldBe` igraph
+
+testFoldEdges
+    :: ( Show weight
+       , Eq weight
+       )
+    => [TestEdge weight]
+    -> Expectation
+testFoldEdges edges = do
+    vertexPairs <- stToIO $ do
+        graph <- Lib.fromEdges edges
+        Lib.foldEdges graph folder []
+    let (actual, expected) = unzip vertexPairs
+    actual `shouldBe` expected
+  where
+    folder srcVid dstVid edge lst = pure $
+        ((srcVid, dstVid), (Lib.eFromIdx edge, Lib.eToIdx edge)) : lst
+
+testoutgoingIncomingCount
+    :: ( Show weight
+       , Eq weight
+       )
+    => [TestEdge weight]
+    -> Expectation
+testoutgoingIncomingCount edges = do
+    (outgoingCountMap, incomingCountMap) <- stToIO $ do
+        graph <- Lib.fromEdges edges
+        Lib.outgoingIncomingCount graph
+    sum (Map.elems outgoingCountMap) `shouldBe` sum (Map.elems incomingCountMap)
+
+testoutgoingIncomingCount2
+    :: ( Show weight
+       , Eq weight
+       , Ord weight
+       )
+    => Set.Set (TestEdge weight)
+    -> Expectation
+testoutgoingIncomingCount2 edges = do
+    (edges', (outgoingCountMap, incomingCountMap)) <- stToIO $ do
+        graph <- Lib.fromEdges $ Set.toList edges
+        edges' <- Lib.toEdges graph -- removes multiple edges that share src and dst vertex
+        maps <- Lib.outgoingIncomingCount graph
+        pure (edges', maps)
+    sum (Map.elems outgoingCountMap) + sum (Map.elems incomingCountMap)
+        `shouldBe`
+            fromIntegral (length edges') * 2

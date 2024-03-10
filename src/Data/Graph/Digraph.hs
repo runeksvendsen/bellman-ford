@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Translation of Sedgewick & Wayne's @EdgeWeightedDigraph.java@ to Haskell (https://algs4.cs.princeton.edu/44sp/EdgeWeightedDigraph.java.html).
 --
@@ -29,6 +30,8 @@ module Data.Graph.Digraph
 , veticesAndLabels
 , outgoingEdges
 , outgoingEdges'
+, foldEdges
+, outgoingIncomingCount
 , mapEdgeMeta
 , lookupVertex
 , lookupVertexId
@@ -207,6 +210,36 @@ toEdges
     -> ST s (Set (IdxEdge v meta))
 toEdges dg = do
     Arr.getElems (digraphVertexArray dg) >>= fmap (Set.fromList . concat) . traverse valueSet
+
+-- | Fold over the edges in the graph, including the src and dst VertexId of each edge.
+foldEdges
+    :: Digraph s v meta
+    -> (VertexId -> VertexId -> IdxEdge v meta -> b -> ST s b)
+       -- ^ arguments: @srcVid dstVid edge state@
+    -> b
+       -- ^ initial state
+    -> ST s b
+foldEdges dg f initState = do
+    srcEdgeTableList <- Arr.getAssocs (digraphVertexArray dg)
+    srcDstEdgeList <- concat <$> traverse
+        (\(srcVid, hashMap) -> map (srcVid,) <$> keyValueSet hashMap)
+        srcEdgeTableList
+    foldM (\state (srcVid, (dstVid, edge)) -> f srcVid dstVid edge state) initState srcDstEdgeList
+
+-- | Count the number of outgoing and incoming edges for each vertex in the graph
+outgoingIncomingCount
+    :: Digraph s v meta
+    -> ST s (Map.Map VertexId Word, Map.Map VertexId Word)
+    -- ^ (outgoingCountMap, incomingCountMap),
+    --
+    -- ie. map of vertex to (number of edges /from/ this vertex, number of edges /to/ this vertex)
+outgoingIncomingCount dg =
+    foldEdges dg folder (Map.empty, Map.empty)
+  where
+    folder srcVid dstVid _ (outgoing, incoming) =
+        pure (insertOrAddOne srcVid outgoing, insertOrAddOne dstVid incoming)
+
+    insertOrAddOne k = Map.insertWith (+) k 1
 
 -- | One or more edges with the same src and dst vertex
 data NonEmptyEdges v meta = NonEmptyEdges
