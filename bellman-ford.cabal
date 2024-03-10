@@ -71,7 +71,6 @@ test-suite bellman-ford-test
       BellmanFord.Spec
       Dijkstra.Spec
       Digraph.Spec
-      Digraph.DotGraph
       EmptyGraph
       Queue.Spec
       IndexMinPQ.Spec
@@ -109,6 +108,5 @@ test-suite bellman-ford-test
     , transformers
     , text
     , bytestring
-    , dotparse == 0.0.3
     , flatparse
   default-language: Haskell2010
