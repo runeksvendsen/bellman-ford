@@ -115,11 +115,6 @@ newtype MState s v meta = MState
     { queue     :: Q.MinPQ s (QueueItem v meta)
     }
 
--- | Necessary because of floating point rounding errors.
---   Cf. https://stackoverflow.com/a/65051801/700597
-epsilon :: Double
-epsilon = 1.0e-14
-
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
     :: MState s g e

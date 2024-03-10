@@ -9,6 +9,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
 
 -- | Translation of Sedgewick & Wayne's @EdgeWeightedDigraph.java@ to Haskell (https://algs4.cs.princeton.edu/44sp/EdgeWeightedDigraph.java.html).
 --
@@ -53,7 +55,7 @@ module Data.Graph.Digraph
 , eToIdx
 , flipEdge
   -- * Util
-, graphToDot, graphToDotMulti
+, graphToDot, graphToDotMulti, DotString(..)
   -- * Internal
 , emptyClone
   -- * Re-exports
@@ -510,21 +512,41 @@ outgoingEdges' dg v = do
     vidM <- lookupVertex dg v
     maybe (return Nothing) (fmap Just . outgoingEdges dg) vidM
 
+-- | The types of strings supported by the DOT language.
+--
+--   Cf. https://graphviz.org/doc/info/lang.html
+data DotString
+    = DotString_DoubleQuoted LT.Text
+    -- ^ A double-quoted string.
+    --   When rendering to the DOT language, the provided string is surrounded by double quotes
+    --   and any double quotes in the provided string are escaped.
+    | DotString_Raw LT.Text
+    -- ^ A "raw" string: you are responsible for properly quoting the string.
+    --   Used for e.g. HTML strings.
+        deriving (Eq, Ord, Show)
+
+renderDotString :: DotString -> LT.Text
+renderDotString (DotString_DoubleQuoted txt) =
+    let escape = LT.replace "\"" "\\\"\\"
+        quote txt' = "\"" <> txt' <> "\""
+    in quote $ escape txt
+renderDotString (DotString_Raw txt) = txt
+
 -- | TODO: better name
 graphToDot
-    :: (v -> LT.Text)
-    -- ^ Vertex label
-    -> (IdxEdge v meta -> Set.Set LT.Text)
-    -- ^ Edge labels.
+    :: (v -> Map.Map LT.Text DotString)
+    -- ^ Vertex attributes. A map from attribute name to value.
+    -> (IdxEdge v meta -> Set.Set (Map.Map LT.Text DotString))
+    -- ^ Edge attributes. A map from attribute name to value.
     --
     -- This is a 'Set.Set' because a 'Digraph' supports only a single edge between two specific vertices.
     -- So if you use e.g. a 'NE.NonEmpty' of edges as the graph metadata to get around this,
     -- then you'll want this function to produce one label for each edge in this non-empty list.
-    -> LT.Text
+    -> DotString
     -- ^ Graph name
     -> Digraph s v meta
     -> ST s LT.Text
-graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
+graphToDot mkVertexAttrs mkEdgeAttrs gLabel g = do
     res <- veticesAndLabels g
     nodesAndEdges <- forM res $ \(v, vid) -> do
         edges <- outgoingEdges g vid
@@ -532,35 +554,39 @@ graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
     pure $ mkGraph nodesAndEdges
   where
     showVertexId = LT.pack . show . vidInt
-    escape = LT.replace "\"" "\\\"\\"
 
     mkNode (v, idx) = statement $ LT.unwords
         [ showVertexId idx
-        , bracketize $ mkLabel (mkVertexLabel v)
+        , mkLabels (mkVertexAttrs v)
         ]
 
-    mkEdge idxEdge edgeLabel =
+    mkEdge idxEdge edgeLabels =
         statement $ LT.unwords
             [ showVertexId $ eFromIdx idxEdge
             , "->"
             , showVertexId $ eToIdx idxEdge
-            , bracketize $ mkLabel edgeLabel
+            , mkLabels edgeLabels
             ]
 
     mkEdges idxEdge =
-        map (mkEdge idxEdge) (Set.toList $ mkEdgeLabel idxEdge)
+        map (mkEdge idxEdge) (Set.toList $ mkEdgeAttrs idxEdge)
 
     mkNodeAndEdges (vertex, idxEdges) =
           mkNode vertex
         : concatMap mkEdges idxEdges
 
     mkGraph nodesAndEdges = mkDigraph $ LT.unlines $
-          statement (mkLabel gLabel)
+          statement (mkAttr "label" gLabel)
         : concatMap mkNodeAndEdges nodesAndEdges
 
     mkDigraph txt = "digraph {\n" <> txt <> "\n}"
-    mkLabel lbl = "label = " <> quote (escape lbl)
-    quote txt = "\"" <> txt <> "\""
+
+    mkLabels :: Map.Map LT.Text DotString -> LT.Text
+    mkLabels lblMap =
+        let renderLabel = uncurry mkAttr
+        in bracketize $ LT.intercalate ", " $ renderLabel <$> Map.toList lblMap
+
+    mkAttr name value = name <> " = " <> renderDotString value
     bracketize txt = "[" <> txt <> "]"
     statement txt = txt <> ";"
 
@@ -568,9 +594,9 @@ graphToDot mkVertexLabel mkEdgeLabel gLabel g = do
 --   as produced by e.g. 'fromEdgesMulti'.
 graphToDotMulti
     :: forall v meta s.
-       (v -> LT.Text)
-    -> (IdxEdge v meta -> LT.Text)
-    -> LT.Text
+       (v -> Map.Map LT.Text DotString)
+    -> (IdxEdge v meta -> Map.Map LT.Text DotString)
+    -> DotString
     -> Digraph s v (NE.NonEmpty meta)
     -> ST s LT.Text
 graphToDotMulti mkVertexLabel mkEdgeLabel =
@@ -582,7 +608,6 @@ graphToDotMulti mkVertexLabel mkEdgeLabel =
             mkEdge meta = edge{ eMeta = meta }
         in mkEdge <$> nonEmptyMetas
 
-    mkEdgeLabel' :: IdxEdge v (NE.NonEmpty meta) -> Set.Set LT.Text
     mkEdgeLabel' = Set.fromList . map mkEdgeLabel . NE.toList . conv
 
 -- | Set of map keys
