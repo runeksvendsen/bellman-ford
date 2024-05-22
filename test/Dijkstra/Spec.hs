@@ -28,7 +28,6 @@ import qualified Test.Tasty                         as Tasty
 import qualified Test.QuickCheck as QC
 import qualified Util.QuickSmall as QS
 import Data.Bifunctor (bimap)
-import Debug.Trace (trace)
 import Data.Functor ((<&>))
 import qualified Test.Tasty.QuickCheck
 import qualified Data.Graph.Util
@@ -60,7 +59,7 @@ spec = setTestParams $ Tasty.testGroup "Dijkstra"
         [ let (edges, expectedList) = testGraph1
           in Tasty.testGroup "unit test" $ -- TODO: get rid of "passed 500 tests"
                 expectedList <&> \((src, dst), _) ->
-                    QS.testPropertyQC (src <> " -> " <> dst) $
+                    TQC.testProperty (src <> " -> " <> dst) $
                         assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordSrcDst dijkstraSourceSinkStr (+) 0 edges ([src], [dst])
         , QS.testPropertyQC "arbitrary graph" $ do
             edges <- arbitraryGraphOld QC.getNonNegative
@@ -70,7 +69,7 @@ spec = setTestParams $ Tasty.testGroup "Dijkstra"
     where
         setTestParams =
             Tasty.localOption (TQC.QuickCheckTests 50) .
-            Tasty.localOption (TQC.QuickCheckMaxRatio 50)
+            Tasty.localOption (TQC.QuickCheckMaxRatio 100)
 
 
         unitTestResults
@@ -176,8 +175,7 @@ assert_sameResultAsBellmanFord results = QC.conjoin $ map QC.conjoin $
                 in if | not (uncurry mDoubleEqual pathLengths) ->
                           QC.property $ expectationFailure failureMessage
                       | isUninterestingPath dijkstraPath && isUninterestingPath bfPath && bfPath == dijkstraPath ->
-                        -- trace (show dijkstraPath <> " ++++ " <> show bfPath)
-                            QC.discard
+                          QC.discard
                       | otherwise ->
                           QC.property ()
     where
