@@ -5,19 +5,20 @@
 
 -- | Generate an arbitrary graph
 module Types.Graph
-( arbitraryGraph
-, intToStr -- TODO: not used
+( arbitraryGraph, arbitraryGraphOld
 )
 where
 
 import Types.Edge
-import Control.Monad (forM)
+import Control.Monad (forM, foldM)
 import qualified Test.Tasty.QuickCheck as QC
 
 
-arbitraryGraph
-  :: QC.Arbitrary a => (a -> weight) -> QC.Gen [TestEdge weight]
-arbitraryGraph graphModifier = do
+arbitraryGraphOld
+  :: QC.Arbitrary a
+  => (a -> weight)
+  -> QC.Gen [TestEdge weight]
+arbitraryGraphOld graphModifier = do
   QC.NonEmpty nodesList <- QC.arbitrary
   weights :: [weight] <- QC.arbitrary
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
@@ -27,18 +28,28 @@ arbitraryGraph graphModifier = do
       <*> QC.elements nodesListStr
       <*> pure (graphModifier weight)
 
--- map an Int to a sequence of characters A-Z
-intToStr :: Int -> String
-intToStr int =
-  go [] int
+-- | Generate a connected graph of a minimum size
+arbitraryGraph
+  :: forall a weight.
+     (QC.Arbitrary a)
+  => (a -> weight)
+  -> Int -- ^ Minimum number of nodes in the graph
+  -> QC.Gen [TestEdge weight]
+arbitraryGraph graphModifier minCount = do
+  nodesList <- nonEmptyListMinCount
+  let nodesListStr = map (show @Int . QC.getPositive) nodesList
+  fst <$> foldM folder ([], [head nodesListStr]) nodesListStr
   where
-    go accum i =
-      let (div', mod') = i `divMod` charCount
-          newChar = toEnum $ mod' + baseInt
-          newAccum = newChar : accum
-      in if div' == 0
-        then newAccum
-        else go newAccum div'
+    nonEmptyListMinCount :: QC.Arbitrary b => QC.Gen [b]
+    nonEmptyListMinCount = QC.getNonEmpty <$>
+      QC.arbitrary `QC.suchThat` \(QC.NonEmpty lst) ->
+        length lst >= minCount
 
-    charCount = fromEnum 'Z' - fromEnum 'A' + 1
-    baseInt = fromEnum 'A'
+    folder (edges, edgesNodes) node = do
+      isToEdge <- QC.arbitrary
+      weight <- QC.arbitrary
+      let weight' = graphModifier weight
+          mkEdge from to = if isToEdge then TestEdge from to weight' else TestEdge to from weight'
+      otherEdgeNode <- QC.elements edgesNodes
+      let newEdge = mkEdge node otherEdgeNode
+      pure (newEdge : edges, node : edgesNodes)
