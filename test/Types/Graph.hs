@@ -5,20 +5,22 @@
 
 -- | Generate an arbitrary graph
 module Types.Graph
-( arbitraryGraph, arbitraryGraphOld
+( arbitraryConnectedGraph, arbitraryGraphEdges
 )
 where
 
 import Types.Edge
 import Control.Monad (forM, foldM)
 import qualified Test.Tasty.QuickCheck as QC
+import Data.Maybe (listToMaybe, maybeToList)
+import qualified Data.Set as Set
 
-
-arbitraryGraphOld
+-- | Generate a list of edges (that hopefully forms a graph)
+arbitraryGraphEdges
   :: QC.Arbitrary a
   => (a -> weight)
   -> QC.Gen [TestEdge weight]
-arbitraryGraphOld graphModifier = do
+arbitraryGraphEdges graphModifier = do
   QC.NonEmpty nodesList <- QC.arbitrary
   weights :: [weight] <- QC.arbitrary
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
@@ -29,27 +31,30 @@ arbitraryGraphOld graphModifier = do
       <*> pure (graphModifier weight)
 
 -- | Generate a connected graph of a minimum size
-arbitraryGraph
+arbitraryConnectedGraph
   :: forall a weight.
      (QC.Arbitrary a)
   => (a -> weight)
   -> Int -- ^ Minimum number of nodes in the graph
   -> QC.Gen [TestEdge weight]
-arbitraryGraph graphModifier minCount = do
+arbitraryConnectedGraph graphModifier minCount = do
   nodesList <- nonEmptyListMinCount
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
-  fst <$> foldM folder ([], [head nodesListStr]) nodesListStr
+  fst <$> foldM folder ([], Set.fromList $ maybeToList $ listToMaybe nodesListStr) nodesListStr
   where
     nonEmptyListMinCount :: QC.Arbitrary b => QC.Gen [b]
-    nonEmptyListMinCount = QC.getNonEmpty <$>
-      QC.arbitrary `QC.suchThat` \(QC.NonEmpty lst) ->
-        length lst >= minCount
+    nonEmptyListMinCount = do
+      minCountLengthList <- QC.vector minCount
+      restOfList <- QC.arbitrary
+      pure $ minCountLengthList ++ restOfList
 
     folder (edges, edgesNodes) node = do
       isToEdge <- QC.arbitrary
       weight <- QC.arbitrary
       let weight' = graphModifier weight
-          mkEdge from to = if isToEdge then TestEdge from to weight' else TestEdge to from weight'
-      otherEdgeNode <- QC.elements edgesNodes
-      let newEdge = mkEdge node otherEdgeNode
-      pure (newEdge : edges, node : edgesNodes)
+          mkEdge = if isToEdge then TestEdge else flip TestEdge
+      existingNode <- QC.elements $ Set.toList edgesNodes
+      existingNodeOrNewNode <- QC.elements [[node], Set.toList edgesNodes] >>= QC.elements
+      let newEdge = mkEdge existingNode existingNodeOrNewNode weight'
+          newEdgeNodes = Set.insert existingNodeOrNewNode edgesNodes
+      pure (newEdge : edges, newEdgeNodes)

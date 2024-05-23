@@ -52,25 +52,33 @@ testGraph1 = (,expectedPaths)
             [(("1", "3"), [(1 --> 2) 1.0, (2 --> 3) 0.5])]
 
 spec :: Tasty.TestTree
-spec = setTestParams $ Tasty.testGroup "Dijkstra"
+spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
     [ Tasty.testGroup "unit tests" $
         assertUnitTestResults (unitTestResults testGraph1)
     , Tasty.testGroup "same result as BellmanFord"
-        [ let (edges, expectedList) = testGraph1
+        [ setNumTestsAndMaxRatio 1 1 $
+          let (edges, expectedList) = testGraph1
           in Tasty.testGroup "unit test" $ -- TODO: get rid of "passed 500 tests"
                 expectedList <&> \((src, dst), _) ->
                     TQC.testProperty (src <> " -> " <> dst) $
                         assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordSrcDst dijkstraSourceSinkStr (+) 0 edges ([src], [dst])
-        , QS.testPropertyQC "arbitrary graph" $ do
-            edges <- arbitraryGraphOld QC.getNonNegative
-            assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst dijkstraSourceSinkStr (+) 0 edges
+        , Tasty.testGroup "arbitrary graph"
+            [ QS.testPropertyQC "arbitraryGraphEdges" $ do
+               edges <- arbitraryGraphEdges QC.getNonNegative
+               assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
+            , QS.testPropertyQC "arbitraryConnectedGraph" $ do
+               edges <- arbitraryConnectedGraph QC.getNonNegative 2
+               assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
+            ]
         ]
     ]
     where
-        setTestParams =
-            Tasty.localOption (TQC.QuickCheckTests 50) .
-            Tasty.localOption (TQC.QuickCheckMaxRatio 100)
+        sameResultAsBellmanFordAllSrcDst' =
+            sameResultAsBellmanFordAllSrcDst dijkstraSourceSinkStr (+) 0
 
+        setNumTestsAndMaxRatio numTests maxRatio =
+            Tasty.localOption (TQC.QuickCheckTests numTests) .
+            Tasty.localOption (TQC.QuickCheckMaxRatio maxRatio)
 
         unitTestResults
           :: ( [TestEdge Double]
@@ -153,7 +161,7 @@ assert_sameResultAsBellmanFord
        )
     => [([Result meta], [Result meta])]
     -> QC.Property
-assert_sameResultAsBellmanFord results = QC.conjoin $ map QC.conjoin $
+assert_sameResultAsBellmanFord results = handleResults $ concat $
     results <&> \(dijstraPaths, bfPaths) ->
         let resultPairs = zip dijstraPaths bfPaths
         in if length resultPairs /= length dijstraPaths
@@ -173,12 +181,17 @@ assert_sameResultAsBellmanFord results = QC.conjoin $ map QC.conjoin $
                         , displayPath "Dijkstra" dijkstraPath
                         ]
                 in if | not (uncurry mDoubleEqual pathLengths) ->
-                          QC.property $ expectationFailure failureMessage
+                          Just $ QC.property $ expectationFailure failureMessage
                       | isUninterestingPath dijkstraPath && isUninterestingPath bfPath && bfPath == dijkstraPath ->
-                          QC.discard
+                          Nothing
                       | otherwise ->
-                          QC.property ()
+                          Just $ QC.property ()
     where
+        handleResults res =
+            case catMaybes res of
+                [] -> QC.discard -- all results were discarded
+                nonDiscards -> QC.conjoin nonDiscards -- not all results were discarded
+
         isUninterestingPath
             :: Result Double -> Bool
         isUninterestingPath (_, _, mPath) = case mPath of
