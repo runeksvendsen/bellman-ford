@@ -8,6 +8,7 @@ module Data.Graph.Dijkstra
   -- * Algorithm
 , dijkstraKShortestPaths
 , dijkstraShortestPathsLevels
+, dijkstraShortestPathsLevelsAccum
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
@@ -26,7 +27,6 @@ import qualified Data.MinPQ as Q
 import qualified Data.Array.MArray                  as Arr
 import qualified Control.Monad.Reader               as R
 import Debug.Trace (traceM)
-import qualified Data.STRef as Ref
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.STRef as ST
 
@@ -123,7 +123,7 @@ resetState mutState = R.lift $ do
         :: Ord item => Q.MinPQ s item -> ST s ()
     emptyQueue = Q.empty
 
---- | WIP: 'k' shortest paths
+--- | Find /k/ shortest paths.
 dijkstraKShortestPaths
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => Int
@@ -131,10 +131,14 @@ dijkstraKShortestPaths
     -> (DG.VertexId, DG.VertexId)
        -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
+       -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
 dijkstraKShortestPaths =
-    dijkstraShortestPaths (const $ const $ const $ pure False)
+    dijkstraShortestPaths (const $ const $ const $ pure False) (\result -> pure . (result :)) []
 
 -- | Find /n/ sets of shortests paths, where each set contains shortests paths of the same length.
+--
+--   Returns paths in the same order as 'dijkstraKShortestPaths', but returns /all/ shortest paths of the same length.
+--   'dijkstraShortestPathsLevels' with argument @levels = 0@ is equivalent to 'dijkstraKShortestPaths 1'.
 dijkstraShortestPathsLevels
     :: forall s v meta.
        (Ord v, Hashable v, Show v, Show meta, Eq meta)
@@ -149,8 +153,29 @@ dijkstraShortestPathsLevels
            --   ...
            --   level n: find all the shortest paths with a length up to that of the /n/ shortest path
     -> (DG.VertexId, DG.VertexId)
+    -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
-dijkstraShortestPathsLevels k numLevels srcDst@(_, dstVid) = do
+    -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
+dijkstraShortestPathsLevels =
+    dijkstraShortestPathsLevelsAccum (\result -> pure . (result :)) []
+
+-- | Same as 'dijkstraShortestPathsLevels' but with a custom result accumulator.
+--
+--   Useful for e.g.:
+--     * Returning results as e.g. a stream
+--     * Limiting running time using 'System.Timeout.timeout' while returning the results accumulated before the timeout
+dijkstraShortestPathsLevelsAccum
+    :: forall s v meta state.
+       (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => (([DG.IdxEdge v meta], Double) -> state -> ST s state)
+    -- ^ Accumulator function
+    -> state -- ^ Initial accumulator state
+    -> Int -- ^ max shortest paths count (/k/)
+    -> Int -- ^ maximum number of "levels"
+    -> (DG.VertexId, DG.VertexId)
+    -- ^ (source vertex, destination vertex)
+    -> Dijkstra s v meta state
+dijkstraShortestPathsLevelsAccum accumResult initalResult k numLevels srcDst@(_, dstVid) = do
     shortestPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the first shortest path
     lastFoundPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the most recent shortest path
     levelCountRef <- R.lift $ ST.newSTRef (0 :: Int)
@@ -181,7 +206,7 @@ dijkstraShortestPathsLevels k numLevels srcDst@(_, dstVid) = do
             when (prio /= lastFoundPathLength) $
                 ST.modifySTRef' levelCountRef (+1)
 
-    dijkstraShortestPaths fEarlyTerminate k srcDst
+    dijkstraShortestPaths fEarlyTerminate accumResult initalResult k srcDst
 
 --- | WIP: 'k' shortest paths with pre-termination.
 --
@@ -194,12 +219,16 @@ dijkstraShortestPaths
     => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> Dijkstra s v meta Bool)
        -- ^ Return 'True' to terminate before /k/ paths have been found.
        --   The arguments to this function are the same as those of the function passed to 'dijkstraTerminate'
+    -> (([DG.IdxEdge v meta], Double) -> state -> ST s state)
+       -- ^ Accumulator function
+    -> state
+       -- ^ Initial accumulator state
     -> Int
        -- ^ Maximum number of shortest paths to return (/k/)
     -> (DG.VertexId, DG.VertexId)
        -- ^ (source vertex, destination vertex)
-    -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
-dijkstraShortestPaths fEarlyTerminate k (srcVid, dstVid) = do
+    -> Dijkstra s v meta state
+dijkstraShortestPaths fEarlyTerminate accumResult initalResult k (srcVid, dstVid) = do
     graph <- R.asks sGraph
     trace' <- R.asks sTrace
     -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085.
@@ -207,7 +236,7 @@ dijkstraShortestPaths fEarlyTerminate k (srcVid, dstVid) = do
     count <- R.lift $ do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
-    dijkstraTerminate (fTerminate' trace' count) [] srcVid
+    dijkstraTerminate (fTerminate' trace' count) initalResult srcVid
   where
     fTerminate' trace' count u prio pathToU state = do
         earlyTerminate <- fEarlyTerminate u prio pathToU
@@ -230,7 +259,7 @@ dijkstraShortestPaths fEarlyTerminate k (srcVid, dstVid) = do
                                 unless (maybe True (\firstEdge -> DG.eFromIdx firstEdge == srcVid) (listToMaybe path')) $
                                     error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
                                 void $ trace' $ TraceEvent_FoundPath (uCount + 1) prio path'
-                                pure $ (path', prio) : state
+                                accumResult (path', prio) state
                             else
                                 pure state
                         incrementCount count u
