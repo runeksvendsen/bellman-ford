@@ -259,9 +259,7 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                         then Test.Hspec.Expectations.shouldStartWith
                         else Test.Hspec.Expectations.shouldBe
                 labelStr = "timeout: " <> show labelStr
-            QC.label labelStr $
-                QC.counterexample labelStr $
-                    results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
+            results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
 
         genResults (srcLabel, dstLabel) = do
             (graph, srcDst) <- stToIO $ do
