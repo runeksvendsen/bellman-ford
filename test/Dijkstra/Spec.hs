@@ -282,10 +282,8 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                     srcDst
                     timeout
                     getChanContents
-            print timeoutResTimeBoundedResult
             pure ( results
-                 , let res = extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
-                   in show res `trace` res
+                 , extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
                  )
 
         timeoutFail actionName timeout' action =
