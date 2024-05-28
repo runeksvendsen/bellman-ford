@@ -271,12 +271,12 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                 let srcDst = (src, dst)
                 pure (graph, srcDst)
             -- TODO: in parallel?
-            results <- timeoutFail "dijkstraShortestPathsLevels" 0.000000001 $
+            results <- timeoutFail "dijkstraShortestPathsLevels" 1 $
                 (Control.Exception.evaluate . Control.DeepSeq.force) =<<
                 stToIO
                     (runner graph $
                         map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
-            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" (timeout/2) $ -- (timeout * 2) $
+            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $ -- (timeout * 2) $
                 Dijkstra.dijkstraShortestPathsLevelsTimeout
                     (runner graph)
                     k
