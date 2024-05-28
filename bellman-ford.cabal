@@ -115,4 +115,5 @@ test-suite bellman-ford-test
     , bytestring
     , flatparse
     , time
+    , deepseq
   default-language: Haskell2010

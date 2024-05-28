@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Types.Edge
 ( TestEdge(..), idxEdgeToTestEdge, edgeListVertices
 , NonNegativeWeight(..)
@@ -19,12 +20,14 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Graph.SP.Double
 import Data.Int
 import qualified Data.Graph.Util
+import GHC.Generics (Generic)
+import qualified Control.DeepSeq
 
 data TestEdge weight = TestEdge
     { getFrom     :: String
     , getTo       :: String
     , getWeight   :: weight
-    } deriving (Eq, Show, Ord)
+    } deriving (Eq, Show, Ord, Generic)
 
 instance Functor TestEdge where
    fmap f e = e{ getWeight = f (getWeight e) }
@@ -33,6 +36,8 @@ instance Lib.DirectedEdge (TestEdge weight) String weight where
    fromNode = getFrom
    toNode = getTo
    metaData = getWeight
+
+instance Control.DeepSeq.NFData weight => Control.DeepSeq.NFData (TestEdge weight)
 
 idxEdgeToTestEdge
    :: Lib.IdxEdge String weight

@@ -195,17 +195,22 @@ dijkstraShortestPathsLevelsTimeout
     -> IO a
 dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout withChan = do
     chan <- Chan.newChan
-    Control.Concurrent.Async.withAsync (runTimeLimitedQueryIO chan) $ \queryAsync -> do
+    a <- Control.Concurrent.Async.withAsync (runTimeLimitedQueryIO chan) $ \queryAsync -> do
         Control.Concurrent.Async.withAsync (writeResultOnTimeout queryAsync chan) $ \writeFinalResultAsync -> do
+            putStrLn "withChan: START"
             res <- withChan chan
+            putStrLn "withChan: DONE"
             Control.Concurrent.Async.cancel queryAsync
+            putStrLn "canceled queryAsync"
             Control.Concurrent.Async.wait writeFinalResultAsync
+            putStrLn "DONE: waiting for writeFinalResultAsync"
             pure res
+    putStrLn "DONE: dijkstraShortestPathsLevelsTimeout"
+    pure a
     where
-        timeoutMicros = round $ toRational (Data.Time.nominalDiffTimeToSeconds timeout) * 1e6
-
         runTimeLimitedQueryIO chan =
-            System.Timeout.timeout timeoutMicros $ void $ stToIO $ runner $
+            let timeoutMicros = ceiling $ Data.Time.nominalDiffTimeToSeconds timeout * 1e6
+            in System.Timeout.timeout timeoutMicros $ void $ stToIO $ runner $
                 dijkstraShortestPathsLevelsAccum
                     (\result () ->
                         Control.Monad.ST.Unsafe.unsafeIOToST $
@@ -217,9 +222,11 @@ dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout withChan = 
                     srcDst
 
         writeResultOnTimeout queryAsync chan = do
+            putStrLn "writeResultOnTimeout: START"
             timeBoundedResult <- Control.Concurrent.Async.wait queryAsync >>= \case
                 Nothing -> pure TimeBoundedResult_TimedOut
                 Just () -> pure TimeBoundedResult_Done
+            putStrLn "writeResultOnTimeout: DONE"
             Chan.writeChan chan timeBoundedResult
 
 -- | Same as 'dijkstraShortestPathsLevels' but with a custom result accumulator.

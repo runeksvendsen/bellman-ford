@@ -41,6 +41,10 @@ import GHC.TypeLits (Nat, KnownNat, natVal)
 import Data.Proxy (Proxy)
 import Data.Data (Proxy(Proxy))
 import Data.Fixed (Pico)
+import qualified System.Timeout
+import qualified Control.DeepSeq
+import qualified Control.Exception
+import Debug.Trace (trace)
 
 testGraph1
     :: ( [TestEdge Double] -- graph edges
@@ -243,32 +247,55 @@ test_dijkstraShortestPathsLevelsTimeout
     -> TQC.Property
 test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
-    QC.forAll srcDstGen $ \(srcLabel, dstLabel) -> TQC.within 10e6 $ QC.ioProperty $ do -- 10s timeout
-        (graph, srcDst) <- stToIO $ do
-            graph <- Lib.fromEdges edges
-            src <- lookupVertex graph srcLabel
-            dst <- lookupVertex graph dstLabel
-            let srcDst = (src, dst)
-            pure (graph, srcDst)
-        results <- stToIO $
-            runner graph $ map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst
-        timeoutResTimeBoundedResult <-
-            Dijkstra.dijkstraShortestPathsLevelsTimeout
-                (runner graph)
-                k
-                numLevels
-                srcDst
-                timeout
-                getChanContents
-        let (timeoutResults, timedOut) =
-                extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
-            (assertPathFunction, labelStr) =
-                if timedOut
-                    then (Test.Hspec.Expectations.shouldStartWith, "timed out")
-                    else (Test.Hspec.Expectations.shouldBe, "no timeout")
-        pure $ QC.label labelStr $
-            results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
+    QC.forAll srcDstGen $ \srcDst ->
+        TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
+            QC.ioProperty $
+                assertResults <$> genResults srcDst
+
     where
+        assertResults (results, (timeoutResults, timedOut)) = do
+            let assertPathFunction =
+                    if timedOut
+                        then Test.Hspec.Expectations.shouldStartWith
+                        else Test.Hspec.Expectations.shouldBe
+                labelStr = "timeout: " <> show labelStr
+            QC.label labelStr $
+                QC.counterexample labelStr $
+                    results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
+
+        genResults (srcLabel, dstLabel) = do
+            (graph, srcDst) <- stToIO $ do
+                graph <- Lib.fromEdges edges
+                src <- lookupVertex graph srcLabel
+                dst <- lookupVertex graph dstLabel
+                let srcDst = (src, dst)
+                pure (graph, srcDst)
+            -- TODO: in parallel?
+            results <- timeoutFail "dijkstraShortestPathsLevels" 0.000000001 $
+                (Control.Exception.evaluate . Control.DeepSeq.force) =<<
+                stToIO
+                    (runner graph $
+                        map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
+            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" (timeout/2) $ -- (timeout * 2) $
+                Dijkstra.dijkstraShortestPathsLevelsTimeout
+                    (runner graph)
+                    k
+                    numLevels
+                    srcDst
+                    timeout
+                    getChanContents
+            print timeoutResTimeBoundedResult
+            pure ( results
+                 , let res = extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
+                   in show res `trace` res
+                 )
+
+        timeoutFail actionName timeout' action =
+            let micros = ceiling $ Data.Time.nominalDiffTimeToSeconds timeout' * 1e6
+            in System.Timeout.timeout micros action >>= \case
+                Nothing -> fail $ actionName <> " timed out after " <> show timeout'
+                Just a -> pure a
+
         runner graph = Dijkstra.runDijkstra graph (+) 0
 
         vertices = edgeListVertices edges
