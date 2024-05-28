@@ -2,25 +2,31 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
 
 -- | Generate an arbitrary graph
 module Types.Graph
-( arbitraryConnectedGraph, arbitraryGraphEdges
+( arbitraryConnectedGraph, ConnectedGraph(..)
+, arbitraryGraphEdges, GraphEdges(..)
+, showGraphEdges
 )
 where
 
 import Types.Edge
 import Control.Monad (forM, foldM)
 import qualified Test.Tasty.QuickCheck as QC
-import Data.Maybe (listToMaybe, maybeToList)
+import Data.Maybe (listToMaybe, maybeToList, catMaybes)
 import qualified Data.Set as Set
+import GHC.TypeLits (KnownNat, Nat, natVal)
+import Data.Proxy (Proxy(Proxy))
+import qualified Data.List
 
 -- | Generate a list of edges (that hopefully forms a graph)
 arbitraryGraphEdges
-  :: QC.Arbitrary a
-  => (a -> weight)
-  -> QC.Gen [TestEdge weight]
-arbitraryGraphEdges graphModifier = do
+  :: QC.Arbitrary weight
+  => QC.Gen [TestEdge weight]
+arbitraryGraphEdges = do
   QC.NonEmpty nodesList <- QC.arbitrary
   weights :: [weight] <- QC.arbitrary
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
@@ -28,16 +34,21 @@ arbitraryGraphEdges graphModifier = do
     TestEdge
       <$> QC.elements nodesListStr
       <*> QC.elements nodesListStr
-      <*> pure (graphModifier weight)
+      <*> pure weight
+
+newtype GraphEdges weight = GraphEdges { unGraphEdges :: [TestEdge weight] }
+  deriving (Show)
+
+instance QC.Arbitrary weight => QC.Arbitrary (GraphEdges weight) where
+  arbitrary = GraphEdges <$> arbitraryGraphEdges
+  shrink = map GraphEdges . dropOnes . unGraphEdges
 
 -- | Generate a connected graph of a minimum size
 arbitraryConnectedGraph
-  :: forall a weight.
-     (QC.Arbitrary a)
-  => (a -> weight)
-  -> Int -- ^ Minimum number of nodes in the graph
+  :: (QC.Arbitrary weight)
+  => Int -- ^ Minimum number of nodes in the graph
   -> QC.Gen [TestEdge weight]
-arbitraryConnectedGraph graphModifier minCount = do
+arbitraryConnectedGraph minCount = do
   nodesList <- nonEmptyListMinCount
   let nodesListStr = map (show @Int . QC.getPositive) nodesList
   fst <$> foldM folder ([], Set.fromList $ maybeToList $ listToMaybe nodesListStr) nodesListStr
@@ -51,10 +62,40 @@ arbitraryConnectedGraph graphModifier minCount = do
     folder (edges, edgesNodes) node = do
       isToEdge <- QC.arbitrary
       weight <- QC.arbitrary
-      let weight' = graphModifier weight
-          mkEdge = if isToEdge then TestEdge else flip TestEdge
+      let mkEdge = if isToEdge then TestEdge else flip TestEdge
       existingNode <- QC.elements $ Set.toList edgesNodes
       existingNodeOrNewNode <- QC.elements [[node], Set.toList edgesNodes] >>= QC.elements
-      let newEdge = mkEdge existingNode existingNodeOrNewNode weight'
+      let newEdge = mkEdge existingNode existingNodeOrNewNode weight
           newEdgeNodes = Set.insert existingNodeOrNewNode edgesNodes
       pure (newEdge : edges, newEdgeNodes)
+
+newtype ConnectedGraph (minSize :: Nat) weight = ConnectedGraph { unConnectedGraph :: [TestEdge weight] }
+  deriving (Show)
+
+instance (KnownNat minSize, QC.Arbitrary weight) => QC.Arbitrary (ConnectedGraph minSize weight) where
+  arbitrary =
+    let minSize = fromIntegral $ natVal (Proxy :: Proxy minSize)
+    in ConnectedGraph <$> arbitraryConnectedGraph minSize
+  shrink = map ConnectedGraph . dropOnes . unConnectedGraph
+
+-- | Return all permutations of the input list with a single element dropped.
+--
+--  Example:
+--
+--  >>> dropElement [1,2,3,4,5]
+--  [[2,3,4,5],[1,3,4,5],[1,2,4,5],[1,2,3,5],[1,2,3,4]]
+dropOnes :: [a] -> [[a]]
+dropOnes lst =
+  catMaybes $ zipWith dropFirstTail (Data.List.inits lst) (Data.List.tails lst)
+  where
+    dropFirstTail _ [] = Nothing
+    dropFirstTail init' tail' = Just $ init' ++ drop 1 tail'
+
+showGraphEdges
+  :: Show weight
+  => [TestEdge (QC.NonNegative weight)]
+  -> String
+showGraphEdges edges =
+  "[" <> Data.List.intercalate ", " (map showTestEdge edges) <> "]"
+  where
+    showTestEdge e = getFrom e <> " -> " <> getTo e <> " @ " <> show (QC.getNonNegative (getWeight e))

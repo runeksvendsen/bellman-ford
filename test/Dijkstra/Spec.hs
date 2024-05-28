@@ -8,6 +8,10 @@
 {-# HLINT ignore "Evaluate" #-}
 {-# HLINT ignore "Use camelCase" #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumDecimals #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 module Dijkstra.Spec
 ( spec
 )
@@ -24,14 +28,19 @@ import qualified Control.Monad.Reader               as R
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations.Pretty
+import qualified Test.Hspec.Expectations
 import qualified Test.Tasty                         as Tasty
 import qualified Test.QuickCheck as QC
-import qualified Util.QuickSmall as QS
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (bimap, first)
 import Data.Functor ((<&>))
 import qualified Test.Tasty.QuickCheck
-import qualified Data.Graph.Util
 import qualified Test.Tasty.QuickCheck as TQC
+import qualified Control.Concurrent.Chan as Chan
+import qualified Data.Time
+import GHC.TypeLits (Nat, KnownNat, natVal)
+import Data.Proxy (Proxy)
+import Data.Data (Proxy(Proxy))
+import Data.Fixed (Pico)
 
 testGraph1
     :: ( [TestEdge Double] -- graph edges
@@ -63,13 +72,23 @@ spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
                     TQC.testProperty (src <> " -> " <> dst) $
                         assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordSrcDst dijkstraSourceSinkStr (+) 0 edges ([src], [dst])
         , Tasty.testGroup "arbitrary graph"
-            [ QS.testPropertyQC "arbitraryGraphEdges" $ do
-               edges <- arbitraryGraphEdges QC.getNonNegative
+            [ TQC.testProperty "arbitraryGraphEdges" $ do
+               edges <- map (fmap QC.getNonNegative) <$> arbitraryGraphEdges
                assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
-            , QS.testPropertyQC "arbitraryConnectedGraph" $ do
-               edges <- arbitraryConnectedGraph QC.getNonNegative 2
+            , TQC.testProperty "arbitraryConnectedGraph" $ do
+               edges <- map (fmap QC.getNonNegative) <$> arbitraryConnectedGraph 2
                assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
             ]
+        ]
+    , setNumTests 10000 $ Tasty.testGroup "dijkstraShortestPathsLevelsTimeout returns subset of dijkstraShortestPathsLevels"
+        [ TQC.testProperty "GraphEdges" $ \graph args -> do
+            let edges = map (fmap QC.getNonNegative) $ unGraphEdges
+                    (graph :: GraphEdges (QC.NonNegative Double))
+            test_dijkstraShortestPathsLevelsTimeout edges args
+        , TQC.testProperty "ConnectedGraph" $ \graph args -> do
+            let edges = map (fmap QC.getNonNegative) $ unConnectedGraph
+                    (graph :: ConnectedGraph 2 (QC.NonNegative Double))
+            test_dijkstraShortestPathsLevelsTimeout edges args
         ]
     ]
     where
@@ -77,8 +96,11 @@ spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
             sameResultAsBellmanFordAllSrcDst dijkstraSourceSinkStr (+) 0
 
         setNumTestsAndMaxRatio numTests maxRatio =
-            Tasty.localOption (TQC.QuickCheckTests numTests) .
+            setNumTests numTests .
             Tasty.localOption (TQC.QuickCheckMaxRatio maxRatio)
+
+        setNumTests numTests =
+            Tasty.localOption (TQC.QuickCheckTests numTests)
 
         unitTestResults
           :: ( [TestEdge Double]
@@ -122,8 +144,7 @@ sameResultAsBellmanFordAllSrcDst
     -> [TestEdge meta]
     -> QC.Gen [([Result meta], [Result meta])]
 sameResultAsBellmanFordAllSrcDst dijkstraSpTo combine zero edges =
-    let fromTo e = [getFrom e, getTo e]
-        vertices = Data.Graph.Util.nubOrd $ concatMap fromTo edges
+    let vertices = edgeListVertices edges
     in sameResultAsBellmanFordSrcDst dijkstraSpTo combine zero edges (vertices, vertices)
 
 sameResultAsBellmanFordSrcDst
@@ -215,3 +236,101 @@ assert_sameResultAsBellmanFord results = handleResults $ concat $
 
         epsilon :: Double
         epsilon = 1.0e-13
+
+test_dijkstraShortestPathsLevelsTimeout
+    :: [TestEdge Double]
+    -> ShortestPathsLevelsArgs 1 10000 -- 1μs to 10ms
+    -> TQC.Property
+test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
+test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
+    QC.forAll srcDstGen $ \(srcLabel, dstLabel) -> TQC.within 10e6 $ QC.ioProperty $ do -- 10s timeout
+        (graph, srcDst) <- stToIO $ do
+            graph <- Lib.fromEdges edges
+            src <- lookupVertex graph srcLabel
+            dst <- lookupVertex graph dstLabel
+            let srcDst = (src, dst)
+            pure (graph, srcDst)
+        results <- stToIO $
+            runner graph $ map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst
+        timeoutResTimeBoundedResult <-
+            Dijkstra.dijkstraShortestPathsLevelsTimeout
+                (runner graph)
+                k
+                numLevels
+                srcDst
+                timeout
+                getChanContents
+        let (timeoutResults, timedOut) =
+                extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
+            (assertPathFunction, labelStr) =
+                if timedOut
+                    then (Test.Hspec.Expectations.shouldStartWith, "timed out")
+                    else (Test.Hspec.Expectations.shouldBe, "no timeout")
+        pure $ QC.label labelStr $
+            results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
+    where
+        runner graph = Dijkstra.runDijkstra graph (+) 0
+
+        vertices = edgeListVertices edges
+        srcDstGen = (,) <$> QC.elements vertices <*> QC.elements vertices
+
+        lookupVertex graph str =
+            Lib.lookupVertex graph str >>=
+            maybe
+                (fail $ "test_dijkstraShortestPathsLevelsTimeout: BUG: vertex not found")
+                pure
+
+        getResult :: ([Lib.IdxEdge String meta], c) -> ([TestEdge meta], c)
+        getResult = first (map idxEdgeToTestEdge)
+
+        getChanContents
+            :: Chan.Chan (Dijkstra.TimeBoundedResult a)
+            -> IO [Dijkstra.TimeBoundedResult a]
+        getChanContents chan =
+            go
+              where
+                go = Chan.readChan chan >>= \case
+                        res@Dijkstra.TimeBoundedResult_Result{} -> (res :) <$> go
+                        res -> pure [res]
+
+        -- also asserts that only the last element of the list is either 'Done' or 'TimedOut';
+        -- and that all other elements are 'Result'.
+        extractResults
+            :: Show a
+            => [Dijkstra.TimeBoundedResult a]
+            -> ([a], Bool)
+            -- Bool: timed out?
+        extractResults [] = error "extractResults: empty list"
+        extractResults nonEmptyList =
+            let getTimeBoundedResultItem (Dijkstra.TimeBoundedResult_Result item) = item
+                getTimeBoundedResultItem other = error $ "extractResults: unexpected element " <> show other <> ". " <> show nonEmptyList
+                timeBoundedResults = map getTimeBoundedResultItem (init nonEmptyList)
+            in case last nonEmptyList of
+                Dijkstra.TimeBoundedResult_Result{} ->
+                    error $ "extractResults: last element was 'Result': " <> show nonEmptyList
+                Dijkstra.TimeBoundedResult_Done -> (timeBoundedResults, False)
+                Dijkstra.TimeBoundedResult_TimedOut -> (timeBoundedResults, True)
+
+-- | Arguments to 'Dijkstra.dijkstraShortestPathsLevels'
+data ShortestPathsLevelsArgs (minTimeRangeMicros :: Nat) (maxTimeRangeMicros :: Nat) = ShortestPathsLevelsArgs
+    { timeout :: !Data.Time.NominalDiffTime
+    , k :: !Int
+    , numLevels :: !Int
+    } deriving (Show)
+
+instance (KnownNat minTimeoutMicros, KnownNat maxTimeoutMicros)
+    => QC.Arbitrary (ShortestPathsLevelsArgs minTimeoutMicros maxTimeoutMicros) where
+        arbitrary = do
+            let timeoutRangeSeconds :: (Pico, Pico)
+                timeoutRangeSeconds =
+                    ( (/ 1e6) $ fromIntegral $ natVal (Proxy :: Proxy minTimeoutMicros)
+                    , (/ 1e6) $ fromIntegral $ natVal (Proxy :: Proxy maxTimeoutMicros)
+                    )
+            timeout' <- Data.Time.secondsToNominalDiffTime <$> QC.chooseEnum timeoutRangeSeconds
+            k' <- QC.arbitrary
+            numLevels' <- QC.arbitrary
+            pure $ ShortestPathsLevelsArgs
+                { timeout = timeout'
+                , k = k'
+                , numLevels = numLevels'
+                }

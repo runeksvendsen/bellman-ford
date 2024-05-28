@@ -1,6 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveFunctor #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
@@ -9,6 +13,7 @@ module Data.Graph.Dijkstra
 , dijkstraKShortestPaths
 , dijkstraShortestPathsLevels
 , dijkstraShortestPathsLevelsAccum
+, dijkstraShortestPathsLevelsTimeout, TimeBoundedResult(..)
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
@@ -29,6 +34,11 @@ import qualified Control.Monad.Reader               as R
 import Debug.Trace (traceM)
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.STRef as ST
+import qualified Control.Concurrent.Chan as Chan
+import qualified Control.Monad.ST.Unsafe
+import qualified Data.Time
+import qualified System.Timeout
+import qualified Control.Concurrent.Async
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -158,6 +168,59 @@ dijkstraShortestPathsLevels
     -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
 dijkstraShortestPathsLevels =
     dijkstraShortestPathsLevelsAccum (\result -> pure . (result :)) []
+
+-- | A result produced by 'dijkstraShortestPathsLevelsTimeout'
+data TimeBoundedResult a
+    = TimeBoundedResult_Result a -- ^ A result
+    | TimeBoundedResult_Done -- ^ No more results. Finished within the time limit.
+    | TimeBoundedResult_TimedOut -- ^ Timed out. Did not finish within the time limit.
+        deriving (Eq, Show, Ord, Functor)
+
+-- | Same as 'dijkstraShortestPathsLevels' but limit running time.
+--
+--   Results are streamed via the 'Chan.Chan' supplied as argument to the @withChan@ function.
+dijkstraShortestPathsLevelsTimeout
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => (forall b. Dijkstra RealWorld v meta b -> ST RealWorld b) -- ^ Run 'Dijkstra' action
+    -> Int -- ^ /k/
+    -> Int -- ^ /levels/
+    -> (DG.VertexId, DG.VertexId) -- ^ (src, dst)
+    -> Data.Time.NominalDiffTime -- ^ Time limit (negative means "wait indefinitely")
+    -> (Chan.Chan (TimeBoundedResult ([DG.IdxEdge v meta], Double)) -> IO a)
+       -- ^ @withChan@ function: results are made available in the 'Chan.Chan'.
+       --
+       --   The Chan will contain zero or more 'TimeBoundedResult_Result' followed by one of:
+       --    (1) 'TimeBoundedResult_Done', indicating that the query terminated within the time limit.
+       --    (2) 'TimeBoundedResult_TimedOut', indicating that the query timed out.
+    -> IO a
+dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout withChan = do
+    chan <- Chan.newChan
+    Control.Concurrent.Async.withAsync (runTimeLimitedQueryIO chan) $ \queryAsync -> do
+        Control.Concurrent.Async.withAsync (writeResultOnTimeout queryAsync chan) $ \writeFinalResultAsync -> do
+            res <- withChan chan
+            Control.Concurrent.Async.cancel queryAsync
+            Control.Concurrent.Async.wait writeFinalResultAsync
+            pure res
+    where
+        timeoutMicros = round $ toRational (Data.Time.nominalDiffTimeToSeconds timeout) * 1e6
+
+        runTimeLimitedQueryIO chan =
+            System.Timeout.timeout timeoutMicros $ void $ stToIO $ runner $
+                dijkstraShortestPathsLevelsAccum
+                    (\result () ->
+                        Control.Monad.ST.Unsafe.unsafeIOToST $
+                            Chan.writeChan chan (TimeBoundedResult_Result result)
+                    )
+                    ()
+                    k
+                    numLevels
+                    srcDst
+
+        writeResultOnTimeout queryAsync chan = do
+            timeBoundedResult <- Control.Concurrent.Async.wait queryAsync >>= \case
+                Nothing -> pure TimeBoundedResult_TimedOut
+                Just () -> pure TimeBoundedResult_Done
+            Chan.writeChan chan timeBoundedResult
 
 -- | Same as 'dijkstraShortestPathsLevels' but with a custom result accumulator.
 --

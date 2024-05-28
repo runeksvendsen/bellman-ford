@@ -5,7 +5,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types.Edge
-( TestEdge(..), idxEdgeToTestEdge
+( TestEdge(..), idxEdgeToTestEdge, edgeListVertices
 , NonNegativeWeight(..)
 , BoundedIntegral, getBoundedIntegral
 , FuzzyOrd(..)
@@ -18,6 +18,7 @@ import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Graph.SP.Double
 import Data.Int
+import qualified Data.Graph.Util
 
 data TestEdge weight = TestEdge
     { getFrom     :: String
@@ -38,6 +39,13 @@ idxEdgeToTestEdge
    -> TestEdge weight
 idxEdgeToTestEdge idx =
    TestEdge (Lib.eFrom idx) (Lib.eTo idx) (Lib.eMeta idx)
+
+edgeListVertices
+   :: [TestEdge weight]
+   -> [String]
+edgeListVertices edges =
+    let fromTo e = [getFrom e, getTo e]
+    in Data.Graph.Util.nubOrd $ concatMap fromTo edges
 
 instance (Monad m, SS.Serial m weight) => SS.Serial m (TestEdge weight) where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series
