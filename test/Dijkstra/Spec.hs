@@ -29,7 +29,6 @@ import qualified Control.Monad.Reader               as R
 import qualified Control.Monad.ST                   as ST
 import qualified Test.Hspec.SmallCheck              ()
 import           Test.Hspec.Expectations.Pretty
-import qualified Test.Hspec.Expectations
 import qualified Test.Tasty                         as Tasty
 import qualified Test.QuickCheck as QC
 import Data.Bifunctor (bimap, first)
@@ -45,7 +44,6 @@ import Data.Fixed (Pico)
 import qualified System.Timeout
 import qualified Control.DeepSeq
 import qualified Control.Exception
-import Debug.Trace (trace)
 
 testGraph1
     :: ( [TestEdge Double] -- graph edges
@@ -250,15 +248,20 @@ test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
     QC.forAll srcDstGen $ \srcDst ->
         TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
-                assertResults =<< genResults srcDst
+            QC.ioProperty $
+                assertResults <$> genResults srcDst
     where
         assertResults (results, (timeoutResults, timedOut)) = do
             let assertPathFunction =
                     if timedOut
                         then shouldStartWith'
                         else Test.Hspec.Expectations.Pretty.shouldBe
-                labelStr = "timeout: " <> show labelStr
-            map PrettyShow results `assertPathFunction` map PrettyShow (reverse timeoutResults) -- WIP: why reverse?
+                labelStr = "timeout: " <> show timedOut
+            QC.label labelStr $
+                QC.counterexample labelStr $
+                    map PrettyShow results
+                        `assertPathFunction`
+                            map PrettyShow (reverse timeoutResults) -- WIP: why reverse?
 
         genResults (srcLabel, dstLabel) = do
             (graph, srcDst) <- stToIO $ do
