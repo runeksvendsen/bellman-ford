@@ -255,8 +255,8 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
         assertResults (results, (timeoutResults, timedOut)) = do
             let assertPathFunction =
                     if timedOut
-                        then Test.Hspec.Expectations.shouldStartWith
-                        else Test.Hspec.Expectations.shouldBe
+                        then shouldStartWith'
+                        else Test.Hspec.Expectations.Pretty.shouldBe
                 labelStr = "timeout: " <> show labelStr
             results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
 
@@ -273,7 +273,7 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                 stToIO
                     (runner graph $
                         map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
-            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $ -- (timeout * 2) $
+            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $
                 Dijkstra.dijkstraShortestPathsLevelsTimeout
                     (runner graph)
                     k
@@ -356,3 +356,7 @@ instance (KnownNat minTimeoutMicros, KnownNat maxTimeoutMicros)
                 , k = k'
                 , numLevels = numLevels'
                 }
+
+shouldStartWith' :: (Show a, Eq a) => [a] -> [a] -> Expectation
+lstA `shouldStartWith'` lstB =
+    take (length lstB) lstA `Test.Hspec.Expectations.Pretty.shouldBe` lstB
