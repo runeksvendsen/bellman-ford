@@ -250,7 +250,6 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
     QC.forAll srcDstGen $ \srcDst ->
         TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
                 assertResults =<< genResults srcDst
-
     where
         assertResults (results, (timeoutResults, timedOut)) = do
             let assertPathFunction =
@@ -258,7 +257,7 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                         then shouldStartWith'
                         else Test.Hspec.Expectations.Pretty.shouldBe
                 labelStr = "timeout: " <> show labelStr
-            results `assertPathFunction` reverse timeoutResults -- WIP: why reverse?
+            map PrettyShow results `assertPathFunction` map PrettyShow (reverse timeoutResults) -- WIP: why reverse?
 
         genResults (srcLabel, dstLabel) = do
             (graph, srcDst) <- stToIO $ do

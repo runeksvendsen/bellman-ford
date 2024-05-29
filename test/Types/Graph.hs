@@ -9,7 +9,7 @@
 module Types.Graph
 ( arbitraryConnectedGraph, ConnectedGraph(..)
 , arbitraryGraphEdges, GraphEdges(..)
-, showGraphEdges
+, PrettyShow(..)
 )
 where
 
@@ -93,9 +93,19 @@ dropOnes lst =
 
 showGraphEdges
   :: Show weight
-  => [TestEdge (QC.NonNegative weight)]
+  => [TestEdge weight]
   -> String
 showGraphEdges edges =
-  "[" <> Data.List.intercalate ", " (map showTestEdge edges) <> "]"
-  where
-    showTestEdge e = getFrom e <> " -> " <> getTo e <> " @ " <> show (QC.getNonNegative (getWeight e))
+  "[" <> Data.List.intercalate ", " (map prettyShowTestEdge edges) <> "]"
+
+prettyShowTestEdge :: Show a => TestEdge a -> String
+prettyShowTestEdge e = getFrom e <> " -> " <> getTo e <> " @ " <> show (getWeight e)
+
+newtype PrettyShow a = PrettyShow { unPrettyShow :: a }
+  deriving (Eq)
+
+instance Show weight => Show (PrettyShow (TestEdge weight)) where
+  show = prettyShowTestEdge . unPrettyShow
+
+instance Show weight => Show (PrettyShow ([TestEdge weight], weight)) where
+  show (PrettyShow (edges, weight)) = "(" <> showGraphEdges edges <> ", " <> show weight <> ")"
