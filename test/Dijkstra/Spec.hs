@@ -249,8 +249,7 @@ test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
     QC.forAll srcDstGen $ \srcDst ->
         TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
-            QC.ioProperty $
-                assertResults <$> genResults srcDst
+                assertResults =<< genResults srcDst
 
     where
         assertResults (results, (timeoutResults, timedOut)) = do
