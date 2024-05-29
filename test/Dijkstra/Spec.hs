@@ -12,6 +12,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
+-- | TODO: assert increasing weight for 'dijkstraShortestPathsLevels'
 module Dijkstra.Spec
 ( spec
 )
