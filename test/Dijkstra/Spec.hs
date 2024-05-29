@@ -82,7 +82,7 @@ spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
                assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
             ]
         ]
-    , setNumTests 10000 $ Tasty.testGroup "dijkstraShortestPathsLevelsTimeout returns subset of dijkstraShortestPathsLevels"
+    , setNumTests 50000 $ Tasty.testGroup "dijkstraShortestPathsLevelsTimeout returns subset of dijkstraShortestPathsLevels"
         [ TQC.testProperty "GraphEdges" $ \graph args -> do
             let edges = map (fmap QC.getNonNegative) $ unGraphEdges
                     (graph :: GraphEdges (QC.NonNegative Double))
@@ -241,7 +241,7 @@ assert_sameResultAsBellmanFord results = handleResults $ concat $
 
 test_dijkstraShortestPathsLevelsTimeout
     :: [TestEdge Double]
-    -> ShortestPathsLevelsArgs 1 10000 -- 1μs to 10ms
+    -> ShortestPathsLevelsArgs 1 1000 -- 1μs to 1ms
     -> TQC.Property
 test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
