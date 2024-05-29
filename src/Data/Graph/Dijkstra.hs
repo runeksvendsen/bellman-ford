@@ -166,8 +166,8 @@ dijkstraShortestPathsLevels
     -- ^ (source vertex, destination vertex)
     -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
     -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
-dijkstraShortestPathsLevels =
-    dijkstraShortestPathsLevelsAccum (\result -> pure . (result :)) []
+dijkstraShortestPathsLevels k numLevels srcDst = reverse <$>
+    dijkstraShortestPathsLevelsAccum (\result -> pure . (result :)) [] k numLevels srcDst
 
 -- | A result produced by 'dijkstraShortestPathsLevelsTimeout'
 data TimeBoundedResult a

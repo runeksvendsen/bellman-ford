@@ -260,7 +260,7 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                 QC.counterexample labelStr $
                     map PrettyShow results
                         `assertPathFunction`
-                            map PrettyShow (reverse timeoutResults) -- WIP: why reverse?
+                            map PrettyShow timeoutResults
 
         genResults (srcLabel, dstLabel) = do
             (graph, srcDst) <- stToIO $ do
