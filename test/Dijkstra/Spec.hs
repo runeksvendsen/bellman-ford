@@ -42,6 +42,7 @@ import Data.Proxy (Proxy)
 import Data.Data (Proxy(Proxy))
 import Data.Fixed (Pico)
 import qualified System.Timeout
+import qualified Control.Concurrent.Async as Async
 
 testGraph1
     :: ( [TestEdge Double] -- graph edges
@@ -268,19 +269,23 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                 dst <- lookupVertex graph dstLabel
                 let srcDst = (src, dst)
                 pure (graph, srcDst)
-            -- TODO: in parallel?
-            results <- timeoutFail "dijkstraShortestPathsLevels" 1 $
-                stToIO
-                    (runner graph $
-                        map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
-            timeoutResTimeBoundedResult <- timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $
-                Dijkstra.dijkstraShortestPathsLevelsTimeout
-                    (runner graph)
-                    k
-                    numLevels
-                    srcDst
-                    timeout
-                    getChanContents
+            let dijkstraShortestPathsLevels =
+                    timeoutFail "dijkstraShortestPathsLevels" 1 $
+                        stToIO
+                            (runner graph $
+                                map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
+                dijkstraShortestPathsLevelsTimeout =
+                    timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $
+                        Dijkstra.dijkstraShortestPathsLevelsTimeout
+                            (runner graph)
+                            k
+                            numLevels
+                            srcDst
+                            timeout
+                            getChanContents
+            (results, timeoutResTimeBoundedResult) <- Async.concurrently
+                dijkstraShortestPathsLevels
+                dijkstraShortestPathsLevelsTimeout
             pure ( results
                  , extractResults $ map (fmap getResult) timeoutResTimeBoundedResult
                  )
