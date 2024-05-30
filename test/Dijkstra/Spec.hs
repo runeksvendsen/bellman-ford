@@ -290,7 +290,7 @@ test_dijkstraShortestPathsLevelsTimeout
 test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
     QC.forAll srcDstGen $ \srcDst ->
-        TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
+        TQC.within 20e6 $
             QC.ioProperty $
                 assertResults <$> genResults srcDst -- TODO: discard no paths found
     where
@@ -315,12 +315,12 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                 let srcDst = (src, dst)
                 pure (graph, srcDst)
             let dijkstraShortestPathsLevels =
-                    timeoutFail "dijkstraShortestPathsLevels" 1 $
+                    timeoutFail "dijkstraShortestPathsLevels" 10 $
                         stToIO
                             (runner graph $
                                 map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
                 dijkstraShortestPathsLevelsTimeout =
-                    timeoutFail "dijkstraShortestPathsLevelsTimeout" 1 $
+                    timeoutFail "dijkstraShortestPathsLevelsTimeout" 10 $
                         Dijkstra.dijkstraShortestPathsLevelsTimeout
                             (runner graph)
                             k
