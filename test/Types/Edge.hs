@@ -4,8 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Types.Edge
-( TestEdge(..), idxEdgeToTestEdge
+( TestEdge(..), idxEdgeToTestEdge, edgeListVertices
 , NonNegativeWeight(..)
 , BoundedIntegral, getBoundedIntegral
 , FuzzyOrd(..)
@@ -18,12 +19,15 @@ import qualified Test.Tasty.QuickCheck                as QC
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Graph.SP.Double
 import Data.Int
+import qualified Data.Graph.Util
+import GHC.Generics (Generic)
+import qualified Control.DeepSeq
 
 data TestEdge weight = TestEdge
     { getFrom     :: String
     , getTo       :: String
     , getWeight   :: weight
-    } deriving (Eq, Show, Ord)
+    } deriving (Eq, Show, Ord, Generic)
 
 instance Functor TestEdge where
    fmap f e = e{ getWeight = f (getWeight e) }
@@ -33,11 +37,20 @@ instance Lib.DirectedEdge (TestEdge weight) String weight where
    toNode = getTo
    metaData = getWeight
 
+instance Control.DeepSeq.NFData weight => Control.DeepSeq.NFData (TestEdge weight)
+
 idxEdgeToTestEdge
    :: Lib.IdxEdge String weight
    -> TestEdge weight
 idxEdgeToTestEdge idx =
    TestEdge (Lib.eFrom idx) (Lib.eTo idx) (Lib.eMeta idx)
+
+edgeListVertices
+   :: [TestEdge weight]
+   -> [String]
+edgeListVertices edges =
+    let fromTo e = [getFrom e, getTo e]
+    in Data.Graph.Util.nubOrd $ concatMap fromTo edges
 
 instance (Monad m, SS.Serial m weight) => SS.Serial m (TestEdge weight) where
    series = TestEdge <$> SS.series <*> SS.series <*> SS.series

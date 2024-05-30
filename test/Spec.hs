@@ -29,7 +29,7 @@ main = runTestTree $
             , mkLocalOption 5 $ IndexMinPQ.spec printTrace
             , mkLocalOption 3 $ Digraph.spec
             , mkLocalOption 3 $ BellmanFord.spec runBF
-            -- , mkLocalOption 3 $ Dijkstra.spec
+            , Dijkstra.spec
             ]
   where
     mkLocalOption scDepth =
