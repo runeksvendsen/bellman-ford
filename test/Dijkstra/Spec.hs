@@ -104,7 +104,7 @@ spec = setNumTests 2000 $ setMaxRatio 3 $ Tasty.testGroup "Dijkstra"
         , setNumTests 4 $ setMaxRatio 20 $
             test_dijkstraShortestPathsLevelsTimeoutConnectedGraph
                 (Proxy :: Proxy 50000)
-                (Proxy :: Proxy 100000)
+                (Proxy :: Proxy 10000)
                 "big ConnectedGraph"
         ]
     ]
