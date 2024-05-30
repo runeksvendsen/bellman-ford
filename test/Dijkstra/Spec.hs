@@ -13,6 +13,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 -- | TODO: assert increasing weight for 'dijkstraShortestPathsLevels'
+-- | TODO: why isn't 'test_dijkstraShortestPathsLevelsTimeout' deterministic given the same --quickcheck-replay= seed?
 module Dijkstra.Spec
 ( spec
 )
@@ -63,11 +64,11 @@ testGraph1 = (,expectedPaths)
             [(("1", "3"), [(1 --> 2) 1.0, (2 --> 3) 0.5])]
 
 spec :: Tasty.TestTree
-spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
+spec = setNumTests 2000 $ setMaxRatio 3 $ Tasty.testGroup "Dijkstra"
     [ Tasty.testGroup "unit tests" $
         assertUnitTestResults (unitTestResults testGraph1)
     , Tasty.testGroup "same result as BellmanFord"
-        [ setNumTestsAndMaxRatio 1 1 $
+        [ setNumTests 1 $ setMaxRatio 1 $
           let (edges, expectedList) = testGraph1
           in Tasty.testGroup "unit test" $ -- TODO: get rid of "passed 500 tests"
                 expectedList <&> \((src, dst), _) ->
@@ -82,23 +83,66 @@ spec = setNumTestsAndMaxRatio 2000 3 $ Tasty.testGroup "Dijkstra"
                assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordAllSrcDst' edges
             ]
         ]
-    , setNumTests 50000 $ Tasty.testGroup "dijkstraShortestPathsLevelsTimeout returns subset of dijkstraShortestPathsLevels"
-        [ TQC.testProperty "GraphEdges" $ \graph args -> do
-            let edges = map (fmap QC.getNonNegative) $ unGraphEdges
-                    (graph :: GraphEdges (QC.NonNegative Double))
-            test_dijkstraShortestPathsLevelsTimeout edges args
-        , TQC.testProperty "ConnectedGraph" $ \graph args -> do
-            let edges = map (fmap QC.getNonNegative) $ unConnectedGraph
-                    (graph :: ConnectedGraph 2 (QC.NonNegative Double))
-            test_dijkstraShortestPathsLevelsTimeout edges args
+    , Tasty.testGroup "dijkstraShortestPathsLevelsTimeout returns subset of dijkstraShortestPathsLevels"
+        [ setNumTests 5000 $ setMaxRatio 10 $
+            test_dijkstraShortestPathsLevelsTimeoutGeneric
+                (\graph -> map (fmap QC.getNonNegative) $ unGraphEdges
+                        (graph :: GraphEdges (QC.NonNegative Double))
+                )
+                (Proxy :: Proxy 1000)
+                "GraphEdges"
+        , setNumTests 5000 $ setMaxRatio 10 $
+            test_dijkstraShortestPathsLevelsTimeoutConnectedGraph
+                (Proxy :: Proxy 2)
+                (Proxy :: Proxy 1000)
+                "small ConnectedGraph"
+        , setNumTests 200 $ setMaxRatio 5 $
+            test_dijkstraShortestPathsLevelsTimeoutConnectedGraph
+                (Proxy :: Proxy 1000)
+                (Proxy :: Proxy 10000)
+                "medium ConnectedGraph"
+        , setNumTests 4 $ setMaxRatio 20 $
+            test_dijkstraShortestPathsLevelsTimeoutConnectedGraph
+                (Proxy :: Proxy 50000)
+                (Proxy :: Proxy 100000)
+                "big ConnectedGraph"
         ]
     ]
     where
+        test_dijkstraShortestPathsLevelsTimeoutGeneric
+            :: forall maxTimeoutMicros graph.
+               ( Show graph
+               , TQC.Arbitrary graph
+               , KnownNat maxTimeoutMicros
+               )
+            => (graph -> [TestEdge Double])
+            -> Proxy (maxTimeoutMicros :: Nat)
+            -> String
+            -> Tasty.TestTree
+        test_dijkstraShortestPathsLevelsTimeoutGeneric getGraphEdges _ name =
+            TQC.testProperty name $ \graph args ->
+                test_dijkstraShortestPathsLevelsTimeout
+                    (getGraphEdges graph)
+                    (args :: ShortestPathsLevelsArgs 1 maxTimeoutMicros)
+
+        test_dijkstraShortestPathsLevelsTimeoutConnectedGraph
+            :: forall minGraphSize maxTimeoutMicros.
+               (KnownNat minGraphSize, KnownNat maxTimeoutMicros)
+            => Proxy (minGraphSize :: Nat)
+            -> Proxy (maxTimeoutMicros :: Nat)
+            -> String
+            -> Tasty.TestTree
+        test_dijkstraShortestPathsLevelsTimeoutConnectedGraph _ =
+            test_dijkstraShortestPathsLevelsTimeoutGeneric
+                (\graph ->
+                    map (fmap QC.getNonNegative) $ unConnectedGraph
+                         (graph :: ConnectedGraph minGraphSize (QC.NonNegative Double))
+                )
+
         sameResultAsBellmanFordAllSrcDst' =
             sameResultAsBellmanFordAllSrcDst dijkstraSourceSinkStr (+) 0
 
-        setNumTestsAndMaxRatio numTests maxRatio =
-            setNumTests numTests .
+        setMaxRatio maxRatio =
             Tasty.localOption (TQC.QuickCheckMaxRatio maxRatio)
 
         setNumTests numTests =
@@ -241,15 +285,16 @@ assert_sameResultAsBellmanFord results = handleResults $ concat $
 
 test_dijkstraShortestPathsLevelsTimeout
     :: [TestEdge Double]
-    -> ShortestPathsLevelsArgs 1 1000 -- 1μs to 1ms
+    -> ShortestPathsLevelsArgs 1 maxTimeoutMicros -- 1μs to 1ms
     -> TQC.Property
 test_dijkstraShortestPathsLevelsTimeout [] _ = QC.discard
 test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
     QC.forAll srcDstGen $ \srcDst ->
         TQC.within 5e6 $ -- TODO: add NOTE: should not be triggered
             QC.ioProperty $
-                assertResults <$> genResults srcDst
+                assertResults <$> genResults srcDst -- TODO: discard no paths found
     where
+        assertResults ([], ([], _)) = QC.discard
         assertResults (results, (timeoutResults, timedOut)) = do
             let assertPathFunction =
                     if timedOut
