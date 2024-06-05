@@ -339,7 +339,6 @@ data QueuePopAction
     | Terminate
         deriving (Eq, Show, Ord)
 
--- | NB: has no effect if the source vertex does not exist
 dijkstraTerminate
     :: forall v meta s state.
        (Ord v, Hashable v, Show v, Show meta, Eq meta)
