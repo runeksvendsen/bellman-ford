@@ -41,7 +41,7 @@ import qualified System.Timeout
 import qualified Control.Concurrent.Async
 import qualified Streaming.Prelude as S
 
-type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
+type Dijkstra s v meta = R.ReaderT (Env s v meta) (ST s)
 
 type MyList a = [a]
 
@@ -89,14 +89,14 @@ runDijkstraTraceGeneric
 runDijkstraTraceGeneric traceFun graph weightCombine zero action = do
     -- TODO: assert all edge weights >= 0
     mutState <- initState graph
-    let state = State traceFun graph weightCombine zero mutState
+    let state = Env traceFun graph weightCombine zero mutState
     R.runReaderT action state
 
 getGraph
     :: Dijkstra s v meta (DG.Digraph s v meta)
 getGraph = R.asks sGraph
 
-data State s v meta = State
+data Env s v meta = Env
     { sTrace            :: TraceEvent v meta Double -> ST s ()
     , sGraph            :: DG.Digraph s v meta
     , sWeightCombine    :: (Double -> meta -> Double)
