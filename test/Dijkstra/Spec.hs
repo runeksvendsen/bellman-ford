@@ -36,7 +36,6 @@ import Data.Bifunctor (bimap, first)
 import Data.Functor ((<&>))
 import qualified Test.Tasty.QuickCheck
 import qualified Test.Tasty.QuickCheck as TQC
-import qualified Control.Concurrent.Chan as Chan
 import qualified Data.Time
 import GHC.TypeLits (Nat, KnownNat, natVal)
 import Data.Proxy (Proxy)
@@ -44,6 +43,7 @@ import Data.Data (Proxy(Proxy))
 import Data.Fixed (Pico)
 import qualified System.Timeout
 import qualified Control.Concurrent.Async as Async
+import qualified Streaming.Prelude
 
 testGraph1
     :: ( [TestEdge Double] -- graph edges
@@ -320,14 +320,13 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
                             (runner graph $
                                 map getResult <$> Dijkstra.dijkstraShortestPathsLevels k numLevels srcDst)
                 dijkstraShortestPathsLevelsTimeout =
-                    timeoutFail "dijkstraShortestPathsLevelsTimeout" 10 $
+                    timeoutFail "dijkstraShortestPathsLevelsTimeout" 10 $ Streaming.Prelude.toList_ $
                         Dijkstra.dijkstraShortestPathsLevelsTimeout
                             (runner graph)
                             k
                             numLevels
                             srcDst
                             timeout
-                            getChanContents
             (results, timeoutResTimeBoundedResult) <- Async.concurrently
                 dijkstraShortestPathsLevels
                 dijkstraShortestPathsLevelsTimeout
@@ -354,16 +353,6 @@ test_dijkstraShortestPathsLevelsTimeout edges ShortestPathsLevelsArgs{..} =
 
         getResult :: ([Lib.IdxEdge String meta], c) -> ([TestEdge meta], c)
         getResult = first (map idxEdgeToTestEdge)
-
-        getChanContents
-            :: Chan.Chan (Dijkstra.TimeBoundedResult a)
-            -> IO [Dijkstra.TimeBoundedResult a]
-        getChanContents chan =
-            go
-              where
-                go = Chan.readChan chan >>= \case
-                        res@Dijkstra.TimeBoundedResult_Result{} -> (res :) <$> go
-                        res -> pure [res]
 
         -- also asserts that only the last element of the list is either 'Done' or 'TimedOut';
         -- and that all other elements are 'Result'.

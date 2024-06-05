@@ -39,6 +39,7 @@ import qualified Control.Monad.ST.Unsafe
 import qualified Data.Time
 import qualified System.Timeout
 import qualified Control.Concurrent.Async
+import qualified Streaming.Prelude as S
 
 type Dijkstra s v meta = R.ReaderT (State s v meta) (ST s)
 
@@ -178,7 +179,7 @@ data TimeBoundedResult a
 
 -- | Same as 'dijkstraShortestPathsLevels' but limit running time.
 --
---   Results are streamed via the 'Chan.Chan' supplied as argument to the @withChan@ function.
+--   Results are provided as a 'S.Stream'.
 dijkstraShortestPathsLevelsTimeout
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (forall b. Dijkstra RealWorld v meta b -> ST RealWorld b) -- ^ Run 'Dijkstra' action
@@ -186,22 +187,20 @@ dijkstraShortestPathsLevelsTimeout
     -> Int -- ^ /levels/
     -> (DG.VertexId, DG.VertexId) -- ^ (src, dst)
     -> Data.Time.NominalDiffTime -- ^ Time limit (negative means "wait indefinitely")
-    -> (Chan.Chan (TimeBoundedResult ([DG.IdxEdge v meta], Double)) -> IO a)
-       -- ^ @withChan@ function: results are made available in the 'Chan.Chan'.
-       --
-       --   The Chan will contain zero or more 'TimeBoundedResult_Result' followed by one of:
-       --    (1) 'TimeBoundedResult_Done', indicating that the query terminated within the time limit.
-       --    (2) 'TimeBoundedResult_TimedOut', indicating that the query timed out.
-    -> IO a
-dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout withChan = do
-    chan <- Chan.newChan
-    Control.Concurrent.Async.withAsync (runTimeLimitedQueryIO chan) $ \queryAsync -> do
-        Control.Concurrent.Async.withAsync (writeResultOnTimeout queryAsync chan) $ \writeFinalResultAsync -> do
-            res <- withChan chan
-            Control.Concurrent.Async.cancel queryAsync
-            Control.Concurrent.Async.wait writeFinalResultAsync
-            pure res
+    -> S.Stream (S.Of (TimeBoundedResult ([DG.IdxEdge v meta], Double))) IO ()
+dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout = do
+    chan <- do
+        chan <- R.lift Chan.newChan
+        queryAsync <- R.lift $ Control.Concurrent.Async.async $ runTimeLimitedQueryIO chan
+        _ <- R.lift $ Control.Concurrent.Async.async $ writeResultOnTimeout queryAsync chan
+        pure chan
+    go chan
     where
+        go chan =
+            R.lift (Chan.readChan chan) >>= \case
+                res@TimeBoundedResult_Result{} -> S.yield res >> go chan
+                other -> S.yield other
+
         runTimeLimitedQueryIO chan =
             let timeoutMicros = ceiling $ Data.Time.nominalDiffTimeToSeconds timeout * 1e6
             in System.Timeout.timeout timeoutMicros $ void $ stToIO $ runner $
