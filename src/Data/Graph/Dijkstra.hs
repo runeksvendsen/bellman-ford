@@ -343,7 +343,7 @@ dijkstraTerminate
     :: forall v meta s state.
        (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> state -> Dijkstra s v meta (state, QueuePopAction))
-    -- ^ What to do with a dequeued vertex: (1) relax the edges going out of this vertex (2) don't do anything  (3) todo.
+    -- ^ What to do with a dequeued vertex: (1) relax the edges going out of this vertex (2) don't do anything (3) return @state@.
     --
     -- ^ Args:
     --     (1) dequeued vertex (@u@)
