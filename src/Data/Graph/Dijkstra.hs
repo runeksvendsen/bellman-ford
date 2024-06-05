@@ -362,22 +362,24 @@ dijkstraTerminate
 dijkstraTerminate terminate terminateInitState srcVid = do
     graph <- R.asks sGraph
     state <- R.asks sMState
-    initAndGo state graph srcVid
+    trace' <- R.asks sTrace
+    zero <- R.asks sZero
+    calcWeight <- R.asks sWeightCombine
+    srcTrace <- initialize state graph zero
+    let calcPathLength :: MyList (DG.IdxEdge v meta) -> Double
+        calcPathLength = foldr (flip calcWeight . DG.eMeta) zero
+    finalState <- go calcPathLength (queue state) graph trace' terminateInitState
+    R.lift $ trace' $ TraceEvent_Done (srcTrace, srcVid)
+    pure finalState
   where
-    initAndGo state graph srcVertex = do
+    initialize state graph zero = do
         resetState state
-        zero <- R.asks sZero
-        calcWeight <- R.asks sWeightCombine
         trace' <- R.asks sTrace
-        mSrc <- R.lift $ DG.lookupVertexId graph srcVertex
-        let srcTrace = fromMaybe (error $ "no such VertexId: " <> show srcVertex) mSrc
-        R.lift $ trace' $ TraceEvent_Init (srcTrace, srcVertex) zero
-        R.lift $ enqueueVertex state (srcVertex, []) zero
-        let calcPathLength :: MyList (DG.IdxEdge v meta) -> Double
-            calcPathLength = foldr (flip calcWeight . DG.eMeta) zero
-        finalState <- go calcPathLength (queue state) graph trace' terminateInitState
-        R.lift $ trace' $ TraceEvent_Done (srcTrace, srcVertex)
-        pure finalState
+        mSrc <- R.lift $ DG.lookupVertexId graph srcVid
+        let srcTrace = fromMaybe (error $ "no such VertexId: " <> show srcVid) mSrc
+        R.lift $ trace' $ TraceEvent_Init (srcTrace, srcVid) zero
+        R.lift $ enqueueVertex state (srcVid, []) zero
+        pure srcTrace
 
     go calcPathLength pq graph trace' terminateState = R.lift (Q.pop pq) >>= \case
         Nothing -> pure terminateState
