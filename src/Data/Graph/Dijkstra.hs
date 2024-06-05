@@ -99,7 +99,7 @@ getGraph = R.asks sGraph
 data Env s v meta = Env
     { sTrace            :: TraceEvent v meta Double -> ST s ()
     , sGraph            :: DG.Digraph s v meta
-    , sWeightCombine    :: (Double -> meta -> Double)
+    , sWeightCombine    :: Double -> meta -> Double
     , sZero             :: Double
     , sMState           :: MState s v meta
     }
