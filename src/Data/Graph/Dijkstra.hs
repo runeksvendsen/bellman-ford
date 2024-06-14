@@ -13,7 +13,7 @@ module Data.Graph.Dijkstra
 , dijkstraKShortestPaths
 , dijkstraShortestPathsLevels
 , dijkstraShortestPathsLevelsAccum
-, dijkstraShortestPathsLevelsTimeout, TimeBoundedResult(..)
+, dijkstraShortestPathsLevelsTimeout, TimeBoundedResult(..), timeBoundedResultListToList
   -- * Types
 , E.DirectedEdge(..)
 , TraceEvent(..)
@@ -177,6 +177,15 @@ data TimeBoundedResult a
     | TimeBoundedResult_Done -- ^ No more results. Finished within the time limit.
     | TimeBoundedResult_TimedOut -- ^ Timed out. Did not finish within the time limit.
         deriving (Eq, Show, Ord, Functor)
+
+timeBoundedResultListToList
+    :: [TimeBoundedResult a]
+    -> [a]
+timeBoundedResultListToList =
+    mapMaybe $ \case
+        TimeBoundedResult_Result a -> Just a
+        TimeBoundedResult_Done -> Nothing
+        TimeBoundedResult_TimedOut -> Nothing
 
 -- | Same as 'dijkstraShortestPathsLevels' but limit running time.
 --
