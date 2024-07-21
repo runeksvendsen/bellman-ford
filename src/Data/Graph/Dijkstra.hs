@@ -190,6 +190,8 @@ timeBoundedResultListToList =
 -- | Same as 'dijkstraShortestPathsLevels' but limit running time.
 --
 --   Results are provided as a 'S.Stream'.
+--
+--   TODO: Create a proper streaming implementation instead of this hack around 'dijkstraShortestPathsLevelsAccum'.
 dijkstraShortestPathsLevelsTimeout
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => (forall b. Dijkstra RealWorld v meta b -> ST RealWorld b) -- ^ Run 'Dijkstra' action
