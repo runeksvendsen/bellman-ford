@@ -65,12 +65,13 @@ testGraph1 = (,expectedPaths)
 
 spec :: Tasty.TestTree
 spec = setNumTests 2000 $ setMaxRatio 3 $ Tasty.testGroup "Dijkstra"
-    [ Tasty.testGroup "unit tests" $
-        assertUnitTestResults (unitTestResults testGraph1)
+    [ setNumTests 1 $
+        Tasty.testGroup "unit tests" $
+            assertUnitTestResults (unitTestResults testGraph1)
     , Tasty.testGroup "same result as BellmanFord"
         [ setNumTests 1 $ setMaxRatio 1 $
           let (edges, expectedList) = testGraph1
-          in Tasty.testGroup "unit test" $ -- TODO: get rid of "passed 500 tests"
+          in Tasty.testGroup "unit test" $
                 expectedList <&> \((src, dst), _) ->
                     TQC.testProperty (src <> " -> " <> dst) $
                         assert_sameResultAsBellmanFord <$> sameResultAsBellmanFordSrcDst dijkstraSourceSinkStr (+) 0 edges ([src], [dst])
