@@ -5,6 +5,7 @@
 {-# HLINT ignore "Use camelCase" #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE ConstraintKinds #-}
 module Data.Graph.Dijkstra
 ( -- * Monad
   runDijkstra, runDijkstraTrace, runDijkstraTraceGeneric
@@ -40,8 +41,14 @@ import qualified Data.Time
 import qualified System.Timeout
 import qualified Control.Concurrent.Async
 import qualified Streaming.Prelude as S
+import Control.Monad.ST.Class (MonadST(..))
 
 type Dijkstra s v meta = R.ReaderT (Env s v meta) (ST s)
+
+type MonadDijkstra v meta m =
+    ( R.MonadReader (Env (World m) v meta) m
+    , MonadST m
+    )
 
 type MyList a = [a]
 
@@ -127,8 +134,8 @@ newtype MState s v meta = MState
 -- | Reset state in 'MState' so that it's the same as returned by 'initState'
 resetState
     :: MState s g e
-    -> Dijkstra s v meta ()
-resetState mutState = R.lift $ do
+    -> ST s ()
+resetState mutState =
     emptyQueue (queue mutState)
   where
     emptyQueue
@@ -238,21 +245,23 @@ dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout = do
 --     * Returning results as e.g. a stream
 --     * Limiting running time using 'System.Timeout.timeout' while returning the results accumulated before the timeout
 dijkstraShortestPathsLevelsAccum
-    :: forall s v meta state.
-       (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (([DG.IdxEdge v meta], Double) -> state -> ST s state)
+    :: forall m v meta state.
+       ( Ord v, Hashable v, Show v, Show meta, Eq meta
+       , MonadDijkstra v meta m
+       )
+    => (([DG.IdxEdge v meta], Double) -> state -> ST (World m) state)
     -- ^ Accumulator function
     -> state -- ^ Initial accumulator state
     -> Int -- ^ max shortest paths count (/k/)
     -> Int -- ^ maximum number of "levels"
     -> (DG.VertexId, DG.VertexId)
     -- ^ (source vertex, destination vertex)
-    -> Dijkstra s v meta state
+    -> m state
 dijkstraShortestPathsLevelsAccum accumResult initalResult k numLevels srcDst@(_, dstVid) = do
-    shortestPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the first shortest path
-    lastFoundPathLengthRef <- R.lift $ ST.newSTRef (1/0 :: Double) -- length of the most recent shortest path
-    levelCountRef <- R.lift $ ST.newSTRef (0 :: Int)
-    let fEarlyTerminate u prio _ = R.lift $ do
+    shortestPathLengthRef <- liftST $ ST.newSTRef (1/0 :: Double) -- length of the first shortest path
+    lastFoundPathLengthRef <- liftST $ ST.newSTRef (1/0 :: Double) -- length of the most recent shortest path
+    levelCountRef <- liftST $ ST.newSTRef (0 :: Int)
+    let fEarlyTerminate u prio _ = liftST $ do
             done <- areWeDone prio
             when (u == dstVid) $
                 foundPathToDst prio
@@ -288,11 +297,13 @@ dijkstraShortestPathsLevelsAccum accumResult initalResult k numLevels srcDst@(_,
 --
 -- Cf. https://codeforces.com/blog/entry/102085 and https://en.wikipedia.org/wiki/K_shortest_path_routing#Algorithm
 dijkstraShortestPaths
-    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> Dijkstra s v meta Bool)
+    :: ( Ord v, Hashable v, Show v, Show meta, Eq meta
+       , MonadDijkstra v meta m
+       )
+    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> m Bool)
        -- ^ Return 'True' to terminate before /k/ paths have been found.
        --   The arguments to this function are the same as those of the function passed to 'dijkstraTerminate'
-    -> (([DG.IdxEdge v meta], Double) -> state -> ST s state)
+    -> (([DG.IdxEdge v meta], Double) -> state -> ST (World m) state)
        -- ^ Accumulator function
     -> state
        -- ^ Initial accumulator state
@@ -300,13 +311,13 @@ dijkstraShortestPaths
        -- ^ Maximum number of shortest paths to return (/k/)
     -> (DG.VertexId, DG.VertexId)
        -- ^ (source vertex, destination vertex)
-    -> Dijkstra s v meta state
+    -> m state
 dijkstraShortestPaths fEarlyTerminate accumResult initalResult k (srcVid, dstVid) = do
     graph <- R.asks sGraph
     liftTrace <- R.asks sLiftTrace
     -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085.
     -- Keeps track of how many times each vertex has been relaxed.
-    count <- R.lift $ do
+    count <- liftST $ do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
     dijkstraTerminate (fTerminate' liftTrace count) initalResult srcVid
@@ -315,9 +326,9 @@ dijkstraShortestPaths fEarlyTerminate accumResult initalResult k (srcVid, dstVid
         earlyTerminate <- fEarlyTerminate u prio pathToU
         if earlyTerminate
             then pure (state, Terminate)
-            else fTerminate liftTrace count u prio pathToU state
+            else liftST $ fTerminate liftTrace count u prio pathToU state
 
-    fTerminate liftTrace count u prio pathToU state = R.lift $ do
+    fTerminate liftTrace count u prio pathToU state = do
         tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
@@ -352,9 +363,11 @@ data QueuePopAction
         deriving (Eq, Show, Ord)
 
 dijkstraTerminate
-    :: forall v meta s state.
-       (Ord v, Hashable v, Show v, Show meta, Eq meta)
-    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> state -> Dijkstra s v meta (state, QueuePopAction))
+    :: forall m v meta state.
+       ( Ord v, Hashable v, Show v, Show meta, Eq meta
+       , MonadDijkstra v meta m
+       )
+    => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> state -> m (state, QueuePopAction))
     -- ^ What to do with a dequeued vertex: (1) relax the edges going out of this vertex (2) don't do anything (3) return @state@.
     --
     -- ^ Args:
@@ -370,18 +383,18 @@ dijkstraTerminate
     -- NOTE: If this VertexId does not exist in the given graph and
     --       tracing is on ('runDijkstraTrace' or 'runDijkstraTraceGeneric'),
     --       the vertex labels in 'TraceEvent_Init' and 'TraceEvent_Done' will be /bottom/.
-    -> Dijkstra s v meta state
+    -> m state
 dijkstraTerminate terminate terminateInitState srcVid = do
     graph <- R.asks sGraph
     state <- R.asks sMState
     liftTrace <- R.asks sLiftTrace
     zero <- R.asks sZero
     calcWeight <- R.asks sWeightCombine
-    initialize state graph zero liftTrace
+    liftST $ initialize state graph zero liftTrace
     let calcPathLength :: MyList (DG.IdxEdge v meta) -> Double
         calcPathLength = foldr (flip calcWeight . DG.eMeta) zero
     finalState <- go calcPathLength (queue state) graph liftTrace terminateInitState
-    R.lift $ liftTrace $ do
+    liftST $ liftTrace $ do
         srcLabel <- lookupVertexIdOrFail graph srcVid
         pure $ TraceEvent_Done (srcLabel, srcVid)
     pure finalState
@@ -391,36 +404,37 @@ dijkstraTerminate terminate terminateInitState srcVid = do
         -> DG.Digraph s v meta
         -> Double
         -> (ST s (TraceEvent v meta Double) -> ST s ())
-        -> Dijkstra s v meta ()
+        -> ST s ()
     initialize state graph zero liftTrace = do
         resetState state
-        R.lift $ liftTrace $ do
+        liftTrace $ do
             srcLabel <- lookupVertexIdOrFail graph srcVid
             pure $ TraceEvent_Init (srcLabel, srcVid) zero
-        R.lift $ enqueueVertex state (srcVid, []) zero
+        enqueueVertex state (srcVid, []) zero
 
     lookupVertexIdOrFail graph vid = do
         mSrc <- DG.lookupVertexId graph vid
         pure $ fromMaybe (error $ "no such VertexId: " <> show srcVid) mSrc
 
-    go  :: (MyList (DG.IdxEdge v meta) -> Double)
-        -> Q.MinPQ s (QueueItem v meta)
-        -> DG.Digraph s v meta
-        -> (ST s (TraceEvent v meta Double) -> ST s ())
+    go  :: MonadDijkstra v meta m
+        => (MyList (DG.IdxEdge v meta) -> Double)
+        -> Q.MinPQ (World m) (QueueItem v meta)
+        -> DG.Digraph (World m) v meta
+        -> (ST (World m) (TraceEvent v meta Double) -> ST (World m) ())
         -> state
-        -> Dijkstra s v meta state
-    go calcPathLength pq graph liftTrace terminateState = R.lift (Q.pop pq) >>= \case
+        -> m state
+    go calcPathLength pq graph liftTrace terminateState = liftST (Q.pop pq) >>= \case
         Nothing -> pure terminateState
         Just (QueueItem v prio pathTo') -> do
             unless (calcPathLength pathTo' == prio) $
                 error $ "dijkstraTerminate: prio /= length path. Prio: " <> show prio <> " path: " <> show pathTo'
-            R.lift $ liftTrace $ do
+            liftST $ liftTrace $ do
                 vLabel <- lookupVertexIdOrFail graph v
                 pure $ TraceEvent_Pop vLabel prio pathTo'
             (newTerminateState, queuePopAction) <- terminate v prio pathTo' terminateState
             let go' = go calcPathLength pq graph liftTrace newTerminateState
                 relaxOutgoingEdges = do
-                    edgeList <- R.lift $ DG.outgoingEdges graph v
+                    edgeList <- liftST $ DG.outgoingEdges graph v
                     forM_ edgeList (relax pathTo' prio)
             case queuePopAction of
                 RelaxOutgoingEdges -> relaxOutgoingEdges >> go'
@@ -430,23 +444,25 @@ dijkstraTerminate terminate terminateInitState srcVid = do
 {-# SCC relax #-}
 -- |
 relax
-    :: (Show v, Ord v, Hashable v, Show meta)
+    :: ( Show v, Ord v, Hashable v, Show meta
+       , MonadDijkstra v meta m
+       )
     => MyList (DG.IdxEdge v meta) -- ^ path from source to the edge's "from" vertex
     -> Double -- ^ distance from source to the edge's "from" vertex
     -> DG.IdxEdge v meta -- ^ edge to relax
-    -> Dijkstra s v meta ()
+    -> m ()
 relax pathTo' distToFrom edge = do
     calcWeight <- R.asks sWeightCombine
     state      <- R.asks sMState
     liftTrace  <- R.asks sLiftTrace
-    handleEdge state calcWeight liftTrace
+    liftST $ handleEdge state calcWeight liftTrace
   where
     handleEdge state calcWeight liftTrace = do
         let to = DG.eToIdx edge
             newToWeight = calcWeight distToFrom (DG.eMeta edge)
         -- push (l + w, (edge :, v))
-        () <- R.lift $ liftTrace $ pure $ TraceEvent_Push edge newToWeight pathTo'
-        R.lift $ enqueueVertex state (to, edge : pathTo') newToWeight
+        () <- liftTrace $ pure $ TraceEvent_Push edge newToWeight pathTo'
+        enqueueVertex state (to, edge : pathTo') newToWeight
 
 -- | Create initial 'MState'
 initState

@@ -66,6 +66,7 @@ library
     , time
     , async
     , streaming
+    , monad-st
   default-language: Haskell2010
 
 test-suite bellman-ford-test
