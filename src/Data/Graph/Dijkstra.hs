@@ -12,7 +12,7 @@ module Data.Graph.Dijkstra
 , Dijkstra
   -- * Algorithm
 , dijkstraKShortestPaths
-, dijkstraShortestPathsLevels
+, dijkstraShortestPathsLevels, dijkstraShortestPathsLevelsStream
 , dijkstraShortestPathsLevelsAccum
 , dijkstraShortestPathsLevelsTimeout, TimeBoundedResult(..), timeBoundedResultListToList
   -- * Types
@@ -154,7 +154,7 @@ dijkstraKShortestPaths
 dijkstraKShortestPaths k srcDstVid = do
     resultRef <- R.lift $ ST.newSTRef []
     let accumResult result = ST.modifySTRef' resultRef (result :)
-    dijkstraShortestPaths (const $ const $ const $ pure False) accumResult k srcDstVid
+    dijkstraShortestPaths (const $ const $ const $ pure False) (liftST . accumResult) k srcDstVid
     R.lift $ reverse <$> ST.readSTRef resultRef
 
 -- | Find /n/ sets of shortests paths, where each set contains shortests paths of the same length.
@@ -181,8 +181,18 @@ dijkstraShortestPathsLevels
 dijkstraShortestPathsLevels k numLevels srcDst = do
     resultRef <- R.lift $ ST.newSTRef []
     let accumResult result = ST.modifySTRef' resultRef (result :)
-    dijkstraShortestPathsLevelsAccum accumResult k numLevels srcDst
+    dijkstraShortestPathsLevelsAccum (liftST . accumResult) k numLevels srcDst
     R.lift $ reverse <$> ST.readSTRef resultRef
+
+-- | Same as 'dijkstraShortestPathsLevels' but results are provided as a 'S.Stream'
+dijkstraShortestPathsLevelsStream
+    :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
+    => Int -- ^ /k/
+    -> Int -- ^ /levels/
+    -> (DG.VertexId, DG.VertexId) -- ^ (src, dst)
+    -> S.Stream (S.Of ([DG.IdxEdge v meta], Double)) (Dijkstra s v meta) ()
+dijkstraShortestPathsLevelsStream k numLevels srcDst = do
+    dijkstraShortestPathsLevelsAccum S.yield k numLevels srcDst
 
 -- | A result produced by 'dijkstraShortestPathsLevelsTimeout'
 data TimeBoundedResult a
@@ -230,7 +240,7 @@ dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout = do
             let timeoutMicros = ceiling $ Data.Time.nominalDiffTimeToSeconds timeout * 1e6
             in System.Timeout.timeout timeoutMicros $ void $ stToIO $ runner $
                 dijkstraShortestPathsLevelsAccum
-                    (Control.Monad.ST.Unsafe.unsafeIOToST . Chan.writeChan chan . TimeBoundedResult_Result)
+                    (liftST . Control.Monad.ST.Unsafe.unsafeIOToST . Chan.writeChan chan . TimeBoundedResult_Result)
                     k
                     numLevels
                     srcDst
@@ -251,7 +261,7 @@ dijkstraShortestPathsLevelsAccum
        ( Ord v, Hashable v, Show v, Show meta, Eq meta
        , MonadDijkstra v meta m
        )
-    => (([DG.IdxEdge v meta], Double) -> ST (World m) ())
+    => (([DG.IdxEdge v meta], Double) -> m ())
     -> Int -- ^ max shortest paths count (/k/)
     -> Int -- ^ maximum number of "levels"
     -> (DG.VertexId, DG.VertexId)
@@ -303,7 +313,7 @@ dijkstraShortestPaths
     => (DG.VertexId -> Double -> MyList (DG.IdxEdge v meta) -> m Bool)
        -- ^ Return 'True' to terminate before /k/ paths have been found.
        --   The arguments to this function are the same as those of the function passed to 'dijkstraTerminate'
-    -> (([DG.IdxEdge v meta], Double) -> ST (World m) ())
+    -> (([DG.IdxEdge v meta], Double) -> m ())
        -- ^ Accumulator function
     -> Int
        -- ^ Maximum number of shortest paths to return (/k/)
@@ -324,13 +334,13 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
         earlyTerminate <- fEarlyTerminate u prio pathToU
         if earlyTerminate
             then pure Terminate
-            else liftST $ fTerminate liftTrace count u prio pathToU
+            else fTerminate liftTrace count u prio pathToU
 
     fTerminate liftTrace count u prio pathToU = do
-        tCount <- Arr.readArray count (DG.vidInt dstVid) -- count[t]
+        tCount <- liftST $ Arr.readArray count (DG.vidInt dstVid) -- count[t]
         if tCount < k
             then do
-                uCount <- Arr.readArray count (DG.vidInt u) -- count[u]
+                uCount <- liftST $ Arr.readArray count (DG.vidInt u) -- count[u]
                 if uCount >= k
                     then pure SkipRelax
                     else do
@@ -339,9 +349,9 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
                             -- The first edge of the path must start at 'src'
                             unless (maybe True (\firstEdge -> DG.eFromIdx firstEdge == srcVid) (listToMaybe path')) $
                                 error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
-                            () <- liftTrace $ pure $ TraceEvent_FoundPath (uCount + 1) prio path'
+                            () <- liftST $ liftTrace $ pure $ TraceEvent_FoundPath (uCount + 1) prio path'
                             accumResult (path', prio)
-                        incrementCount count u
+                        liftST $ incrementCount count u
                         pure RelaxOutgoingEdges
             else pure Terminate
 
