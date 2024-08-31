@@ -185,6 +185,23 @@ dijkstraShortestPathsLevels k numLevels srcDst = do
     R.lift $ reverse <$> ST.readSTRef resultRef
 
 -- | Same as 'dijkstraShortestPathsLevels' but results are provided as a 'S.Stream'
+--
+-- Example 1:
+--
+-- >>> import qualified Data.Graph.Digraph as DG
+-- >>> import qualified Streaming.Prelude as S
+-- >>> import qualified Streaming as S
+-- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "b"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "b" >>= \(Just dst) -> runDijkstra graph (+) 0 (S.toList_ $ dijkstraShortestPathsLevelsStream 1 1 (src, dst))
+-- [([IdxEdge {eMeta = 1.0, _eFrom = "a", _eTo = "b", _eFromIdx = VertexId {_vidInt = 0}, _eToIdx = VertexId {_vidInt = 1}}],1.0)]
+--
+-- Example 2 (with 'hoist'):
+-- TODO: BROKEN!
+--
+-- >>> import qualified Data.Graph.Digraph as DG
+-- >>> import qualified Streaming.Prelude as S
+-- >>> import qualified Streaming as S
+-- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "b"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "b" >>= \(Just dst) -> S.toList_ (S.hoist (runDijkstra graph (+) 0) (dijkstraShortestPathsLevelsStream 1 1 (src, dst)))
+-- []
 dijkstraShortestPathsLevelsStream
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => Int -- ^ /k/
