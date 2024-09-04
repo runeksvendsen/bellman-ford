@@ -199,7 +199,9 @@ dijkstraShortestPathsLevels k numLevels srcDst = do
 -- >>> import qualified Data.Graph.Digraph as DG
 -- >>> import qualified Streaming.Prelude as S
 -- >>> import qualified Streaming as S
--- >>> stream <- Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> pure (S.hoistUnexposed (Control.Monad.ST.stToIO . runDijkstra graph (+) 0) (dijkstraShortestPathsLevelsStream 2 2 (src, dst)))
+-- >>> let setup = DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> pure (graph, (src, dst))
+-- >>> let runner graph = Control.Monad.ST.stToIO . runDijkstra graph (+) 0
+-- >>> let stream = Control.Monad.Trans.Class.lift (Control.Monad.ST.stToIO setup) >>= \(graph, srcDst) -> S.hoistUnexposed (runner graph) (dijkstraShortestPathsLevelsStream 2 2 srcDst)
 -- >>> S.stdoutLn $ S.map (\(lst, weight) -> let edges = Data.List.intercalate ", " $ map Data.Graph.SP.Util.showEdge lst in "Weight " <> show weight <> ": " <> edges) stream
 -- Weight 1.5: 0 ("a") -> 1 ("b") (meta: 0.5), 1 ("b") -> 2 ("c") (meta: 1.0)
 -- Weight 2.0: 0 ("a") -> 2 ("c") (meta: 2.0)
