@@ -186,22 +186,23 @@ dijkstraShortestPathsLevels k numLevels srcDst = do
 
 -- | Same as 'dijkstraShortestPathsLevels' but results are provided as a 'S.Stream'
 --
--- Example 1:
+-- Example 1 (with 'S.toList_'):
 --
 -- >>> import qualified Data.Graph.Digraph as DG
 -- >>> import qualified Streaming.Prelude as S
 -- >>> import qualified Streaming as S
--- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "b"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "b" >>= \(Just dst) -> runDijkstra graph (+) 0 (S.toList_ $ dijkstraShortestPathsLevelsStream 1 1 (src, dst))
--- [([IdxEdge {eMeta = 1.0, _eFrom = "a", _eTo = "b", _eFromIdx = VertexId {_vidInt = 0}, _eToIdx = VertexId {_vidInt = 1}}],1.0)]
+-- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> runDijkstra graph (+) 0 (S.toList_ $ dijkstraShortestPathsLevelsStream 10 1 (src, dst))
+-- [([IdxEdge {eMeta = 0.5, _eFrom = "a", _eTo = "b", _eFromIdx = VertexId {_vidInt = 0}, _eToIdx = VertexId {_vidInt = 1}},IdxEdge {eMeta = 1.0, _eFrom = "b", _eTo = "c", _eFromIdx = VertexId {_vidInt = 1}, _eToIdx = VertexId {_vidInt = 2}}],1.5)]
 --
--- Example 2 (with 'hoist'):
--- TODO: BROKEN!
+-- Example 2 (with 'S.stdoutLn'):
 --
 -- >>> import qualified Data.Graph.Digraph as DG
 -- >>> import qualified Streaming.Prelude as S
 -- >>> import qualified Streaming as S
--- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "b"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "b" >>= \(Just dst) -> S.toList_ (S.hoist (runDijkstra graph (+) 0) (dijkstraShortestPathsLevelsStream 1 1 (src, dst)))
--- []
+-- >>> stream <- Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> pure (S.hoistUnexposed (Control.Monad.ST.stToIO . runDijkstra graph (+) 0) (dijkstraShortestPathsLevelsStream 2 2 (src, dst)))
+-- >>> S.stdoutLn $ S.map (\(lst, weight) -> let edges = Data.List.intercalate ", " $ map Data.Graph.SP.Util.showEdge lst in "Weight " <> show weight <> ": " <> edges) stream
+-- Weight 1.5: 0 ("a") -> 1 ("b") (meta: 0.5), 1 ("b") -> 2 ("c") (meta: 1.0)
+-- Weight 2.0: 0 ("a") -> 2 ("c") (meta: 2.0)
 dijkstraShortestPathsLevelsStream
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => Int -- ^ /k/

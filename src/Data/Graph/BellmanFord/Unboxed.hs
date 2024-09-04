@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | "Data.Graph.BellmanFord" specialized to work with all unboxed edge weights.
 --
 --   Where "unboxed" refers to anything that can be stored in an unboxed array
