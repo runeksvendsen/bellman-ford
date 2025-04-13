@@ -147,8 +147,8 @@ dijkstraKShortestPaths
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => Int
        -- ^ Maximum number of shortest paths to return
-    -> (DG.VertexId, DG.VertexId)
-       -- ^ (source vertex, destination vertex)
+    -> (DG.VertexId, Maybe DG.VertexId)
+       -- ^ (source vertex, optional destination vertex)
     -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
        -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
 dijkstraKShortestPaths k srcDstVid = do
@@ -174,8 +174,8 @@ dijkstraShortestPathsLevels
            --   level 3: find all the shortest paths with a length up to that of the third shortest path
            --   ...
            --   level n: find all the shortest paths with a length up to that of the /n/ shortest path
-    -> (DG.VertexId, DG.VertexId)
-    -- ^ (source vertex, destination vertex)
+    -> (DG.VertexId, Maybe DG.VertexId)
+    -- ^ (source vertex, optional destination vertex)
     -> Dijkstra s v meta [([DG.IdxEdge v meta], Double)]
     -- ^ List of: (@path@, @path length@). @path length@ is monotonically increasing.
 dijkstraShortestPathsLevels k numLevels srcDst = do
@@ -191,7 +191,7 @@ dijkstraShortestPathsLevels k numLevels srcDst = do
 -- >>> import qualified Data.Graph.Digraph as DG
 -- >>> import qualified Streaming.Prelude as S
 -- >>> import qualified Streaming as S
--- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> runDijkstra graph (+) 0 (S.toList_ $ dijkstraShortestPathsLevelsStream 10 1 (src, dst))
+-- >>> Control.Monad.ST.stToIO $ DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> runDijkstra graph (+) 0 (S.toList_ $ dijkstraShortestPathsLevelsStream 10 1 (src, Just dst))
 -- [([IdxEdge {eMeta = 0.5, _eFrom = "a", _eTo = "b", _eFromIdx = VertexId {_vidInt = 0}, _eToIdx = VertexId {_vidInt = 1}},IdxEdge {eMeta = 1.0, _eFrom = "b", _eTo = "c", _eFromIdx = VertexId {_vidInt = 1}, _eToIdx = VertexId {_vidInt = 2}}],1.5)]
 --
 -- Example 2 (with 'S.stdoutLn'):
@@ -199,7 +199,7 @@ dijkstraShortestPathsLevels k numLevels srcDst = do
 -- >>> import qualified Data.Graph.Digraph as DG
 -- >>> import qualified Streaming.Prelude as S
 -- >>> import qualified Streaming as S
--- >>> let setup = DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> pure (graph, (src, dst))
+-- >>> let setup = DG.fromEdges [(("a", "c"), 2), (("a", "b"), 0.5), (("b", "c"), 1)] >>= \graph -> DG.lookupVertex graph "a" >>= \(Just src) -> DG.lookupVertex graph "c" >>= \(Just dst) -> pure (graph, (src, Just dst))
 -- >>> let runner graph = Control.Monad.ST.stToIO . runDijkstra graph (+) 0
 -- >>> let stream = Control.Monad.Trans.Class.lift (Control.Monad.ST.stToIO setup) >>= \(graph, srcDst) -> S.hoistUnexposed (runner graph) (dijkstraShortestPathsLevelsStream 2 2 srcDst)
 -- >>> S.stdoutLn $ S.map (\(lst, weight) -> let edges = Data.List.intercalate ", " $ map Data.Graph.SP.Util.showEdge lst in "Weight " <> show weight <> ": " <> edges) stream
@@ -209,7 +209,7 @@ dijkstraShortestPathsLevelsStream
     :: (Ord v, Hashable v, Show v, Show meta, Eq meta)
     => Int -- ^ /k/
     -> Int -- ^ /levels/
-    -> (DG.VertexId, DG.VertexId) -- ^ (src, dst)
+    -> (DG.VertexId, Maybe DG.VertexId) -- ^ (src, maybe dst)
     -> S.Stream (S.Of ([DG.IdxEdge v meta], Double)) (Dijkstra s v meta) ()
 dijkstraShortestPathsLevelsStream k numLevels srcDst = do
     dijkstraShortestPathsLevelsAccum S.yield k numLevels srcDst
@@ -240,7 +240,7 @@ dijkstraShortestPathsLevelsTimeout
     => (forall b. Dijkstra RealWorld v meta b -> ST RealWorld b) -- ^ Run 'Dijkstra' action
     -> Int -- ^ /k/
     -> Int -- ^ /levels/
-    -> (DG.VertexId, DG.VertexId) -- ^ (src, dst)
+    -> (DG.VertexId, Maybe DG.VertexId) -- ^ (src, maybe dst)
     -> Data.Time.NominalDiffTime -- ^ Time limit (negative means "wait indefinitely")
     -> S.Stream (S.Of (TimeBoundedResult ([DG.IdxEdge v meta], Double))) IO ()
 dijkstraShortestPathsLevelsTimeout runner k numLevels srcDst timeout = do
@@ -284,16 +284,19 @@ dijkstraShortestPathsLevelsAccum
     => (([DG.IdxEdge v meta], Double) -> m ())
     -> Int -- ^ max shortest paths count (/k/)
     -> Int -- ^ maximum number of "levels"
-    -> (DG.VertexId, DG.VertexId)
-    -- ^ (source vertex, destination vertex)
+    -> (DG.VertexId, Maybe DG.VertexId)
+    -- ^ (source vertex, optional destination vertex)
     -> m ()
-dijkstraShortestPathsLevelsAccum accumResult k numLevels srcDst@(_, dstVid) = do
+dijkstraShortestPathsLevelsAccum accumResult k numLevels srcDst@(srcVid, mDstVid) = do
     shortestPathLengthRef <- liftST $ ST.newSTRef (1/0 :: Double) -- length of the first shortest path
     lastFoundPathLengthRef <- liftST $ ST.newSTRef (1/0 :: Double) -- length of the most recent shortest path
     levelCountRef <- liftST $ ST.newSTRef (0 :: Int)
     let fEarlyTerminate u prio _ = liftST $ do
             done <- areWeDone prio
-            when (u == dstVid) $
+            let foundResult = case mDstVid of
+                    Just dstVid -> u == dstVid
+                    Nothing -> u /= srcVid
+            when foundResult $ -- TODO: monadic comparison function of `lookup u` and `lookup dstVid`
                 foundPathToDst prio
             pure done
 
@@ -337,10 +340,10 @@ dijkstraShortestPaths
        -- ^ Accumulator function
     -> Int
        -- ^ Maximum number of shortest paths to return (/k/)
-    -> (DG.VertexId, DG.VertexId)
-       -- ^ (source vertex, destination vertex)
+    -> (DG.VertexId, Maybe DG.VertexId)
+       -- ^ (source vertex, optional destination vertex)
     -> m ()
-dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
+dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, mDstVid) = do
     graph <- R.asks sGraph
     liftTrace <- R.asks sLiftTrace
     -- "count" array, cf. "Algorithm 1" https://codeforces.com/blog/entry/102085.
@@ -348,16 +351,17 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
     count <- liftST $ do
         vertexCount <- fromIntegral <$> DG.vertexCount graph
         Arr.newArray (0, vertexCount) 0
-    dijkstraTerminate (fTerminate' liftTrace count) srcVid
+    resultCountRef <- liftST $ ST.newSTRef 0 -- In the case where no target vertex is specified, we need something for counting the number of results. When there _is_ a target vertex, count[dstVid] is used, whereas this is used otherwise.
+    dijkstraTerminate (fTerminate' liftTrace count resultCountRef) srcVid
   where
-    fTerminate' liftTrace count u prio pathToU = do
+    fTerminate' liftTrace count resultCountRef u prio pathToU = do
         earlyTerminate <- fEarlyTerminate u prio pathToU
         if earlyTerminate
             then pure Terminate
-            else fTerminate liftTrace count u prio pathToU
+            else fTerminate liftTrace count resultCountRef u prio pathToU
 
-    fTerminate liftTrace count u prio pathToU = do
-        tCount <- liftST $ Arr.readArray count (DG.vidInt dstVid) -- count[t]
+    fTerminate liftTrace count resultCountRef u prio pathToU = do
+        tCount <- getResultCount count resultCountRef -- Check how many shortest paths we have found so far
         if tCount < k
             then do
                 uCount <- liftST $ Arr.readArray count (DG.vidInt u) -- count[u]
@@ -365,7 +369,11 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
                     then pure SkipRelax
                     else do
                         let path' = reverse pathToU
-                        when (u == dstVid) $ do
+                            foundResult = case mDstVid of
+                                Just dstVid -> u == dstVid
+                                Nothing -> u /= srcVid
+                        when foundResult $ do -- TODO: monadic comparison function of `lookup u` and `lookup dstVid`
+                            liftST $ ST.modifySTRef' resultCountRef (+1)
                             -- The first edge of the path must start at 'src'
                             unless (maybe True (\firstEdge -> DG.eFromIdx firstEdge == srcVid) (listToMaybe path')) $
                                 error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
@@ -374,6 +382,10 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, dstVid) = do
                         liftST $ incrementCount count u
                         pure RelaxOutgoingEdges
             else pure Terminate
+
+    getResultCount count resultCountRef = case mDstVid of
+        Just dstVid -> liftST $ Arr.readArray count (DG.vidInt dstVid)
+        Nothing -> liftST $ ST.readSTRef resultCountRef
 
     -- count[u] += 1
     incrementCount :: STUArray s Int Int -> DG.VertexId -> ST s ()
