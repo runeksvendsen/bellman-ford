@@ -373,11 +373,13 @@ dijkstraShortestPaths fEarlyTerminate accumResult k (srcVid, mDstVid) = do
                                 Just dstVid -> u == dstVid
                                 Nothing -> u /= srcVid
                         when foundResult $ do -- TODO: monadic comparison function of `lookup u` and `lookup dstVid`
-                            liftST $ ST.modifySTRef' resultCountRef (+1)
+                            resultCount <- liftST $ do
+                                ST.modifySTRef' resultCountRef (+1)
+                                ST.readSTRef resultCountRef
                             -- The first edge of the path must start at 'src'
                             unless (maybe True (\firstEdge -> DG.eFromIdx firstEdge == srcVid) (listToMaybe path')) $
                                 error $ "dijkstraTerminate: first edge of shortest path doesn't start at 'src': " <> show path'
-                            () <- liftST $ liftTrace $ pure $ TraceEvent_FoundPath (uCount + 1) prio path'
+                            () <- liftST $ liftTrace $ pure $ TraceEvent_FoundPath resultCount prio path'
                             accumResult (path', prio)
                         liftST $ incrementCount count u
                         pure RelaxOutgoingEdges
