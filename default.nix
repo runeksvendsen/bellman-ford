@@ -10,6 +10,7 @@ let
   mono-traversableSrc = builtins.fetchGit {
     url = "https://github.com/runeksvendsen/mono-traversable.git";
     rev = "5bcff3e91337c071a7855be0691eae1bc91f35b5";
+    ref = "tolist-safe-read";
   };
 
   args =
