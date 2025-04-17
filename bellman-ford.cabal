@@ -66,6 +66,7 @@ library
     , time
     , async
     , streaming
+    , monad-st
   default-language: Haskell2010
 
 test-suite bellman-ford-test
@@ -119,4 +120,17 @@ test-suite bellman-ford-test
     , deepseq
     , async
     , streaming
+  default-language: Haskell2010
+
+-- For some odd reason, this executable must be present for the following command invocation to succeed:
+--    cabal install doctest --overwrite-policy=always && cabal exec -- doctest -isrc src/
+test-suite doctest-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs:
+      test/doctest/
+  ghc-options: -Wall
+  build-depends:
+      base
+    , doctest
   default-language: Haskell2010

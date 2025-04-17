@@ -10,3 +10,5 @@ source-repository-package
     location: https://github.com/runeksvendsen/mono-traversable.git
     tag: 5bcff3e91337c071a7855be0691eae1bc91f35b5
     subdir: mutable-containers
+
+index-state: hackage.haskell.org 2024-07-12T21:46:06Z

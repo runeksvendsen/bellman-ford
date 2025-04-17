@@ -39,8 +39,11 @@ jobs:
       - name: Build library
         run: nix-shell --run "cabal build lib:bellman-ford"
 
-      - name: Build tests
+      - name: Build test suite "bellman-ford-test"
         run: nix-shell --run "cabal build test-suite:bellman-ford-test"
 
-      - name: Run tests
-        run: nix-shell --run "cabal test --test-show-details=direct"
+      - name: Run test suite "bellman-ford-test"
+        run: nix-shell --run "cabal test --test-show-details=direct test-suite:bellman-ford-test"
+
+      - name: Run doctest
+        run: nix-shell --run "cabal install doctest --overwrite-policy=always && cabal exec -- doctest -isrc src/"
